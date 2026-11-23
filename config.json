@@ -32,12 +32,16 @@
       "energy": 15.0
     },
     "unverified_contract_risk_factor": 0.5,
-    "_note": "max_lot_by_kind: буруу contract size-аас хэт том лот гарахаас хамгаална. unverified_contract_risk_factor: contract_verified биш хэрэгслийн эрсдэлийг үржүүлэх коэффициент."
+    "_note": "max_lot_by_kind: буруу contract size-аас хэт том лот гарахаас хамгаална. unverified_contract_risk_factor: contract_verified биш хэрэгслийн эрсдэлийг үржүүлэх коэффициент.",
+    "require_positive_ev": true,
+    "min_expected_r": 0.0,
+    "allow_low_evidence": false,
+    "_ev_gate_note": "Хатуу EV шүүлтүүр: түүхэн тестээр хүлээгдэх утга (R) ≤ min_expected_r эсвэл нотолгоо сул (LOW) санаанд лот 0 — зөвхөн ажиглах. Унтраах бол require_positive_ev: false."
   },
   "selection": {
     "ideas": 6,
-    "min_forex": 2,
-    "min_index": 1,
+    "min_forex": 0,
+    "min_index": 0,
     "min_score": 45,
     "max_same_currency_same_side": 2,
     "max_per_kind": {
@@ -51,7 +55,9 @@
       "default": 1,
       "US": 2
     },
-    "max_pair_correlation": 0.8
+    "max_pair_correlation": 0.8,
+    "max_usd_net_risk_pct": 1.0,
+    "_ccy_cap_note": "max_usd_net_risk_pct: валют бүрийн (USD, EUR, ...) цэвэр төлөвлөсөн эрсдэл (үнэлгээний risk_pct-ээр) энэ хувиас хэтрэхгүй. max_pair_correlation-ийг 60 ба 20 өдрийн аль муугаар нь шалгана."
   },
   "instruments": [
     {
@@ -887,14 +893,14 @@
   ],
   "institutional": {
     "_note": "Техник оноо (0-100) дээр банкны консенсус ±bank_weight, COT ±cot_weight нэмэгдэнэ.",
-    "bank_weight": 15,
+    "bank_weight": 5,
     "cot_weight": 8,
     "views_file": "views/bank_views.json",
     "views_max_age_days": 45,
     "views_half_life_days": 30,
     "cot_enabled": true,
     "unverified_weight": 0.6,
-    "analyst_weight": 7,
+    "analyst_weight": 3,
     "analyst_max_age_days": 14,
     "analyst_half_life_days": 7,
     "trusted_analyst_domains": [
@@ -1141,7 +1147,8 @@
         "cadence": "шууд",
         "note": "2026-11-19-нд ажиллаж байгааг шалгасан; самбарт автоматаар."
       }
-    ]
+    ],
+    "_weight_cap_note": "2026-11-23: bank_weight 15→5, analyst_weight 7→3 — түүхэн нарийвчлал (views/bank_views_archive.json) батлагдах хүртэл хязгаарлав."
   },
   "news": {
     "_note": "High мэдээ window_hours дотор бол penalty_window, block_hours дотор бол penalty_block оноо хасаж MARKET захиалгын үнэлгээг C-ээр хязгаарлана. Мэдээнээс lock_before_hours өмнө – lock_after_hours хойно MARKET-ийг түгжинэ. АНУ-ын FOMC/NFP/CPI зэрэг мэдээ бүх хэрэгсэлд тооцогдоно.",
@@ -1152,7 +1159,9 @@
     "penalty_block": 10,
     "lock_before_hours": 0.25,
     "lock_after_hours": 0.5,
-    "execution_guard_minutes": 2
+    "execution_guard_minutes": 5,
+    "provider": "auto",
+    "_provider_note": "Календарийн эх сурвалж: auto = MT5 → FMP (FMP_API_KEY) → TradingEconomics (TE_API_KEY) → Finnhub (FINNHUB_API_KEY) → ForexFactory (+Myfxbook actual) → Myfxbook. Түлхүүргүйг алгасна."
   },
   "_instruments_note": "Зөвхөн таны 5ers MT5 дансанд арилжаалагддаг 57 символ. value_per_point_per_lot = MT5 → Symbol → Specification → Contract size (форексээс бусдад ЗААВАЛ шалгаж засна).",
   "technical": {
@@ -1447,5 +1456,38 @@
       "cost_ref_price": 3.0943,
       "cost_measured": "2026-11-17 07:48 UTC"
     }
-  ]
+  ],
+  "strategy_profiles": {
+    "_note": "Төрөл бүрийн сетапын дүрэм. allow_market / allow_limit, setups (жагсаалт; хоосон = бүгд), require_macro_alignment (эдийн засгийн сюрприз санааны талд байх). Одоогоор бүгд асаалттай — research-ээр батлагдсан өөрчлөлтийг л оруулна.",
+    "forex": {
+      "allow_market": true,
+      "allow_limit": true,
+      "setups": [],
+      "require_macro_alignment": false
+    },
+    "metal": {
+      "allow_market": true,
+      "allow_limit": true,
+      "setups": [],
+      "require_macro_alignment": false
+    },
+    "index": {
+      "allow_market": true,
+      "allow_limit": true,
+      "setups": [],
+      "require_macro_alignment": false
+    },
+    "crypto": {
+      "allow_market": true,
+      "allow_limit": true,
+      "setups": [],
+      "require_macro_alignment": false
+    },
+    "energy": {
+      "allow_market": true,
+      "allow_limit": true,
+      "setups": [],
+      "require_macro_alignment": false
+    }
+  }
 }
