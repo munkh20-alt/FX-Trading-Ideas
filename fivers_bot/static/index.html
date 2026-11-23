@@ -1,0 +1,1263 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0E14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="FX Bot">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<title>FX Intelligence · 5ers</title>
+<style>
+:root {
+  --bg: #f4f5f8; --panel: #ffffff; --panel2: #f8f9fb; --ink: #14171c; --muted: #5f6773; --line: #e1e5eb;
+  --buy: #087f6c; --buy-bg: #e0f3ef; --sell: #c9303c; --sell-bg: #fbe6e8;
+  --accent: #2a5bd7; --accent-bg: #e7edfb; --warn: #a3620a; --warn-bg: #fdf1dc; --bar: #2a5bd7; --bar-bg: #e8ecf3;
+  --gA: #087f6c; --gB: #2a5bd7; --gC: #a3620a; --gD: #7a818c;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0B0E14; --panel: #151924; --panel2: #1a1f2c; --ink: #e8ebef; --muted: #98a1ad; --line: #2a3039;
+    --buy: #22b8a0; --buy-bg: #0d2b27; --sell: #f6465d; --sell-bg: #3a151b;
+    --accent: #7aa2ff; --accent-bg: #1b2540; --warn: #F59E0B; --warn-bg: #352610; --bar: #7aa2ff; --bar-bg: #262c36;
+    --gA: #22b8a0; --gB: #7aa2ff; --gC: #F59E0B; --gD: #98a1ad;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0B0E14; --panel: #151924; --panel2: #1a1f2c; --ink: #e8ebef; --muted: #98a1ad; --line: #2a3039;
+  --buy: #22b8a0; --buy-bg: #0d2b27; --sell: #f6465d; --sell-bg: #3a151b;
+  --accent: #7aa2ff; --accent-bg: #1b2540; --warn: #F59E0B; --warn-bg: #352610; --bar: #7aa2ff; --bar-bg: #262c36;
+  --gA: #22b8a0; --gB: #7aa2ff; --gC: #F59E0B; --gD: #98a1ad;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.app { display: grid; grid-template-columns: 212px minmax(0, 1fr) 300px; min-height: 100%; }
+.nav { background: var(--panel); border-right: 1px solid var(--line); padding: 16px 10px; position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.brand { font-weight: 750; font-size: 17px; letter-spacing: -.01em; padding: 2px 10px 12px; }
+.brand small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.nav button { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; border: 0; background: none; color: var(--muted); padding: 8px 10px; border-radius: 8px; font: inherit; cursor: pointer; }
+.nav button:hover { background: var(--panel2); color: var(--ink); }
+.nav button.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
+.nav button .ic { width: 18px; text-align: center; font-size: 14px; }
+.nav .grp { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 12px 10px 4px; }
+.nav .sp { flex: 1; }
+main { padding: 18px 20px 48px; min-width: 0; }
+.rail { border-left: 1px solid var(--line); padding: 18px 14px; position: sticky; top: 0; height: 100vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+h1 { font-size: 21px; margin: 0; letter-spacing: -.01em; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+.sub { color: var(--muted); font-size: 13px; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+select, input, button { font: inherit; color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; }
+input[type=number] { width: 120px; }
+button { cursor: pointer; }
+button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+:root[data-theme="dark"] button.primary { color: #0B0E14; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) button.primary { color: #0B0E14; } }
+button:disabled { opacity: .55; cursor: progress; }
+/* Толгойн удирдлага ба анхааруулга зөвхөн «Тойм», «Санаанууд» дээр — бусад хуудсанд дэлгэцийн зай хэмнэнэ */
+body.public [data-private], body.static [data-nostatic] { display: none !important; }
+.pubnote { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--accent-bg); color: var(--ink); font-size: 13.5px; }
+main:not(.withctl) header .controls, main:not(.withctl) #banner { display: none; }
+.balchip { font-size: 13px; color: var(--muted); }
+.balchip b { color: var(--ink); }
+details.adv { position: relative; }
+details.adv > summary { list-style: none; cursor: pointer; border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; background: var(--panel); font-size: 14px; }
+details.adv > summary::-webkit-details-marker { display: none; }
+details.adv[open] > summary { background: var(--panel2); }
+details.adv .pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 15; width: 280px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.12); }
+details.adv .pop label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+details.adv .pop input { width: 100%; box-sizing: border-box; }
+.notrade { color: var(--warn); font-weight: 600; }
+.banner { padding: 10px 12px; border-radius: 8px; background: var(--warn-bg); color: var(--warn); font-size: 14px; margin-top: 10px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 10px; margin: 14px 0; }
+.kpi, .box { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.box { margin-bottom: 12px; }
+.kpi .l, .box .l { color: var(--muted); font-size: 12px; }
+.kpi .v { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.meter { height: 6px; background: var(--bar-bg); border-radius: 3px; margin-top: 8px; overflow: hidden; }
+.meter > i { display: block; height: 100%; background: var(--bar); }
+.meter.hot > i { background: var(--sell); } .meter.mid > i { background: var(--warn); }
+.cols2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 12px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.sym { font-size: 18px; font-weight: 700; }
+.tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; font-weight: 600; }
+.BUY { background: var(--buy-bg); color: var(--buy); } .SELL { background: var(--sell-bg); color: var(--sell); }
+.kind { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.score { text-align: right; }
+.score b { font-size: 24px; font-variant-numeric: tabular-nums; }
+.grade { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 7px; color: #fff; font-weight: 700; margin-left: 6px; vertical-align: 4px; }
+.grade.sm { width: 20px; height: 20px; font-size: 12px; border-radius: 5px; vertical-align: 0; margin-left: 4px; }
+.body { display: grid; grid-template-columns: 1fr 125px; gap: 12px; }
+table.lv { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; font-size: 14px; }
+table.lv td { padding: 3px 0; border-bottom: 1px dashed var(--line); }
+table.lv td:last-child { text-align: right; font-weight: 600; }
+.meta { color: var(--muted); font-size: 12.5px; }
+.bd { display: grid; grid-template-columns: 92px 1fr 44px; gap: 4px 8px; align-items: center; font-size: 12.5px; }
+.bd .t { height: 6px; background: var(--bar-bg); border-radius: 3px; overflow: hidden; }
+.bd .t > i { display: block; height: 100%; background: var(--bar); }
+.bd .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.chip { display: inline-flex; gap: 6px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.chip.lowev { background: var(--warn-bg); color: var(--warn); border-color: transparent; }
+button.chip { background: var(--panel); cursor: pointer; }
+button.chip.on { background: var(--accent-bg); color: var(--accent); border-color: transparent; font-weight: 600; }
+.probs { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: baseline; font-size: 13px; font-variant-numeric: tabular-nums; }
+.probs span { color: var(--muted); font-size: 12px; }
+#jtable input, #jtable select { padding: 3px 6px; font-size: 13px; }
+#jtable input[type=number] { width: 92px; text-align: right; }
+#jtable input.note { width: 170px; }
+.chips { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.chips .chip { font-weight: 600; font-size: 12.5px; }
+.card.dim { opacity: .62; }
+.side { display: flex; flex-direction: column; align-items: center; justify-content: space-between; gap: 6px; }
+.copy { font-size: 11.5px; padding: 4px 8px; width: 100%; }
+input.mt5 { width: 108px; padding: 2px 6px; font-size: 13px; text-align: right; }
+.inval { font-size: 12.5px; color: var(--muted); }
+.hist { background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: 7px 10px; font-size: 13px; }
+.hist b { font-size: 15px; }
+.calcform { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px 12px; align-items: end; margin-bottom: 12px; }
+.calcform label { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+.calcform input, .calcform select { width: 100%; }
+.calcbtns { display: flex; gap: 8px; }
+#calctable td, #calctable th { text-align: right; white-space: nowrap; }
+#calctable td:first-child, #calctable th:first-child { text-align: left; }
+#calctable tr.sub2 td { color: var(--muted); font-size: 12.5px; border-bottom: 1px solid var(--line); }
+#calctable tr.main td { border-bottom: 0; padding-bottom: 2px; }
+#calctable tr.off td { opacity: .5; }
+.delta { font-size: 12px; margin-left: 4px; }
+.kpi .cmp { font-size: 12.5px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
+.pos { color: var(--buy); } .neg { color: var(--sell); } .warnc { color: var(--warn); }
+ul.r { margin: 0; padding-left: 0; list-style: none; font-size: 13px; display: grid; gap: 3px; }
+ul.r li::before { content: "✓ "; color: var(--buy); }
+ul.r li.w::before { content: "! "; color: var(--warn); font-weight: 700; }
+ul.r li.w { color: var(--warn); }
+details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+.notes { margin-top: 16px; color: var(--muted); font-size: 13px; }
+.notes li { margin: 2px 0; }
+pre.log { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; max-height: 520px; overflow: auto; font-size: 12px; white-space: pre-wrap; }
+table.rv { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; }
+table.rv th, table.rv td { padding: 7px 10px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13.5px; }
+table.rv th { color: var(--muted); font-weight: 600; font-size: 12px; white-space: nowrap; }
+table.rv th.sortable { cursor: pointer; user-select: none; }
+table.rv td.num, table.rv th.num { text-align: right; }
+table.rv tr.click { cursor: pointer; } table.rv tr.click:hover td { background: var(--panel2); }
+.empty { color: var(--muted); padding: 30px 0; text-align: center; }
+.scroll { overflow-x: auto; }
+.sbar { display: grid; grid-template-columns: 44px 1fr 52px; gap: 8px; align-items: center; font-size: 13px; font-variant-numeric: tabular-nums; margin: 4px 0; }
+.sbar .tr { position: relative; height: 10px; background: var(--bar-bg); border-radius: 5px; }
+.sbar .tr i { position: absolute; top: 0; bottom: 0; border-radius: 5px; }
+.sbar .tr::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+.heat { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.heat th { font-weight: 600; color: var(--muted); padding: 3px 5px; white-space: nowrap; }
+.heat td { width: 46px; height: 28px; text-align: center; border: 1px solid var(--panel); }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; }
+.dot.High { background: var(--sell); } .dot.Medium { background: var(--warn); }
+.day { font-weight: 650; margin: 14px 0 6px; }
+.chartwrap { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+#cv { width: 100%; height: 460px; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--muted); margin: 8px 2px 0; }
+.legend i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; }
+.mini { display: grid; gap: 6px; }
+.mini .row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; align-items: baseline; }
+.mini .row > :last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rail .box { margin: 0; }
+.form2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.form2 label { display: grid; gap: 4px; font-size: 12.5px; color: var(--muted); }
+.form2 input, .form2 select { width: 100%; }
+a { color: var(--accent); }
+@media (max-width: 1280px) { .app { grid-template-columns: 212px minmax(0, 1fr); } .rail { grid-column: 2; position: static; height: auto; border-left: 0; border-top: 1px solid var(--line); flex-direction: row; flex-wrap: wrap; padding: 16px 20px 28px; } .rail .box { flex: 1 1 260px; } }
+#more, #scrim { display: none; }
+@media (max-width: 860px) {
+  /* Гар утас: доод цэс (эрхий хуруунд ойр) + «Бусад» хуудас */
+  .app { display: block; }
+  body { padding-bottom: calc(64px + env(safe-area-inset-bottom)); }
+  .nav { position: fixed; left: 0; right: 0; bottom: 0; top: auto; z-index: 20; height: auto; flex-direction: row; overflow: visible;
+         padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); gap: 2px; border-right: 0; border-top: 1px solid var(--line);
+         justify-content: space-around; box-shadow: 0 -4px 16px rgba(0,0,0,.08); }
+  .nav .brand, .nav .grp, .nav .sp { display: none; }
+  .nav button { width: auto; flex: 1 1 0; min-width: 0; min-height: 52px; flex-direction: column; justify-content: center; gap: 2px;
+                padding: 4px 2px; font-size: 11.5px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nav button .ic { width: auto; font-size: 18px; }
+  .nav button[data-view]:not(.pri) { display: none; }
+  #more { display: flex; }
+  .nav.open button[data-view]:not(.pri), .nav.open #theme { display: flex; }
+  /* «Бусад» нээлттэй: дээр нь 3 баганатай хуудас, доор нь үндсэн 5 товч хэвээр (15 = 3 × 5 = 5 × 3) */
+  .nav.open { display: grid; grid-template-columns: repeat(15, minmax(0, 1fr)); gap: 4px; }
+  .nav.open button { grid-column: span 3; }
+  .nav.open button[data-view]:not(.pri), .nav.open #theme { order: -1; grid-column: span 5; min-height: 56px; background: var(--panel2); }
+  #theme { display: none; }
+  #scrim { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 19; }
+  .nav.open ~ #scrim { display: block; }
+  main { padding: calc(12px + env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) 24px max(12px, env(safe-area-inset-left)); }
+  .rail { padding: 12px; }
+  #cv { height: 340px; }
+  /* Хүснэгт: хуудсыг өргөсгөхгүй, өөрөө хажуу тийш гүйнэ */
+  table.rv { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; white-space: nowrap; }
+  .mini { grid-template-columns: minmax(0, 1fr); }
+  .mini .row { flex-wrap: wrap; }
+  .mini .row > :last-child { margin-left: auto; text-align: right; min-width: 0; overflow-wrap: anywhere; white-space: normal; }
+  .heat { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .box, .kpi { overflow-wrap: anywhere; }
+  select, input, textarea { font-size: 16px; }          /* iOS: талбар дарахад томрохгүй */
+  button, select, input { min-height: 44px; }
+  .controls > * { flex: 1 1 auto; }
+  details.adv .pop { position: static; width: auto; margin-top: 6px; box-shadow: none; }
+  .balchip { flex-basis: 100%; }
+  h1 { font-size: 19px; }
+}
+@media (max-width: 420px) { .grid { grid-template-columns: 1fr; } .body { grid-template-columns: 1fr 96px; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="nav" id="nav">
+    <div class="brand">FX Intelligence<small>5ers · шинжилгээний самбар</small></div>
+    <button class="on pri" data-view="overview"><span class="ic">◉</span>Тойм</button>
+    <button data-view="market"><span class="ic">◫</span>Зах зээл</button>
+    <button class="pri" data-view="ideas"><span class="ic">✦</span>Санаанууд</button>
+    <button class="pri" data-view="chart"><span class="ic">▤</span>График</button>
+    <button data-view="calendar"><span class="ic">◷</span>Календарь</button>
+    <div class="grp">Эрсдэл ба гүйцэтгэл</div>
+    <button data-view="account" data-private><span class="ic">$</span>Данс (MT5)</button>
+    <button class="pri" data-view="risk"><span class="ic">◈</span>Эрсдэл</button>
+    <button data-view="journal" data-private><span class="ic">✎</span>Журнал</button>
+    <button data-view="perf"><span class="ic">◔</span>Гүйцэтгэл</button>
+    <div class="grp">Мэдээлэл</div>
+    <button data-view="research"><span class="ic">❖</span>Банк, шинжээч</button>
+    <button data-view="cbank"><span class="ic">⌂</span>Төв банк, мэдээ</button>
+    <button data-view="sources"><span class="ic">⛁</span>Эх сурвалж</button>
+    <button data-view="settings" data-private><span class="ic">⚙</span>Тохиргоо</button>
+    <button data-view="log" data-nostatic><span class="ic">≡</span>Лог</button>
+    <div class="sp"></div>
+    <button id="theme" title="Өнгө солих"><span class="ic">◐</span>Өнгө солих</button>
+    <button id="more" aria-expanded="false" aria-controls="nav"><span class="ic">☰</span>Бусад</button>
+  </nav>
+  <div id="scrim"></div>
+
+  <main class="withctl">
+    <header>
+      <div>
+        <h1 id="title">Тойм</h1>
+        <div class="sub" id="sub">Ачаалж байна…</div>
+      </div>
+      <div class="controls">
+        <span class="balchip" id="balchip"></span>
+        <select id="rep" aria-label="Санааны тайлан сонгох" title="Өмнөх санааны тайлангууд"></select>
+        <details class="adv" data-private><summary aria-label="Нэмэлт тохиргоо">⚙ Тохиргоо</summary>
+          <div class="pop"><label for="bal">Туршилтын баланс ($)</label>
+            <input id="bal" type="number" min="100" step="100" placeholder="хоосон = MT5-ийн бодит баланс" inputmode="numeric">
+            <div class="sub" style="margin-top:6px">«Өөр хэмжээтэй дансаар бол лот ямар гарах вэ» гэж турших үед л бөглөнө. Хоосон үлдээвэл MT5 данс (холбогдоогүй бол config.json)-ын балансаар тооцно.</div></div>
+        </details>
+        <button class="primary" id="run" data-nostatic>Шинэ санаа гаргах</button>
+      </div>
+    </header>
+    <div id="pubnote" class="pubnote" hidden></div>
+    <div id="banner"></div>
+
+    <section id="view-overview">
+      <div class="kpis" id="kpis"></div>
+      <div class="cols2">
+        <div class="box"><h2>Шилдэг санаанууд</h2><div class="scroll"><table class="rv" id="ovideas"></table></div></div>
+        <div class="box"><h2>Зах зээлийн төлөв</h2><div class="mini" id="ovmarket"></div></div>
+      </div>
+      <div class="box" id="bt" hidden></div>
+      <ul class="notes" id="notes"></ul>
+    </section>
+
+    <section id="view-market" hidden>
+      <div class="cols2">
+        <div class="box"><h2>Валютын харьцангуй хүч</h2><div class="sub">5 ба 20 өдрийн өгөөжөөс. Эерэг = бусад валютаас хүчтэй.</div><div id="strength" style="margin-top:8px"></div></div>
+        <div class="box"><h2>Корреляци (60 өдөр)</h2><div class="sub">Өндөр оноотой санаануудын өдрийн өгөөжийн хамаарал. ±0.8-аас их бол давхардсан эрсдэл.</div><div class="scroll" id="corr" style="margin-top:8px"></div></div>
+      </div>
+      <div class="box">
+        <h2>Бүх хэрэгсэл</h2>
+        <div class="chips" id="mkfilter" style="margin:0 0 10px"></div>
+        <div class="scroll"><table class="rv" id="mktable"></table></div>
+        <div class="sub" style="margin-top:8px">Мөр дээр дарвал графикийг нээнэ. ATR% = өдрийн дундаж хэлбэлзэл үнийн хувиар.</div>
+      </div>
+    </section>
+
+    <section id="view-ideas" hidden><div class="grid" id="ideas"></div></section>
+
+    <section id="view-chart" hidden>
+      <div class="controls" style="margin:14px 0 10px">
+        <select id="chsym" aria-label="Хэрэгсэл"></select>
+        <span id="chtf"><button class="chip" data-tf="d1">D1</button> <button class="chip on" data-tf="h4">H4</button> <button class="chip" data-tf="h1">H1</button></span>
+        <span class="sub" id="chinfo"></span>
+      </div>
+      <div class="chartwrap"><canvas id="cv"></canvas></div>
+      <div class="legend" id="chlegend"></div>
+      <div class="sub" id="chread" style="margin-top:6px;font-variant-numeric:tabular-nums">Хулганаа график дээр аваачвал лааны утга харагдана.</div>
+    </section>
+
+    <section id="view-calendar" hidden>
+      <div class="controls" style="margin:14px 0 4px">
+        <button class="chip on" id="calhigh">Зөвхөн өндөр нөлөөтэй</button>
+        <span class="sub">Цаг таны компьютерийн цагаар. Тод тэмдэглэсэн мөр одоогийн санаануудын валютад хамаарна.</span>
+      </div>
+      <div class="sub" id="calsrc" style="margin:0 0 8px"></div>
+      <div id="cal"></div>
+    </section>
+
+    <section id="view-risk" hidden>
+      <div class="kpis" id="riskkpis"></div>
+      <div class="cols2">
+        <div class="box"><h2>The5ers дүрэм</h2><div class="scroll"><table class="rv" id="rules"></table></div></div>
+        <div class="box"><h2>Валютын цэвэр эрсдэл</h2><div class="sub">Бүх SL зэрэг цохигдвол валют тус бүрт ногдох дүн. Нэг валютад төвлөрсөн бол эрсдэл давхардана.</div><div id="expo" style="margin-top:8px"></div></div>
+      </div>
+      <div class="box"><h2>Санаа тус бүрийн эрсдэл</h2><div class="scroll"><table class="rv" id="risktable"></table></div></div>
+      <div class="box" data-nostatic>
+        <h2>Тооцоолуур</h2>
+        <p class="sub" style="margin-top:0">Сонгосон тайлангийн санаануудыг өөрийн тохиргоогоор дахин тооцож, анхны үнэлгээтэй харьцуулна. Зах зээлийн өгөгдөл дахин татахгүй.</p>
+        <form class="calcform" id="calcform">
+          <label>Баланс ($)<input type="number" id="c_balance" min="100" step="100" placeholder="тайлангийнх"></label>
+          <label>Өдрийн нийт эрсдэл (%)<input type="number" id="c_total" min="0.1" max="10" step="0.1" placeholder="2.5"></label>
+          <label>Нэг арилжааны эрсдэл (%)<input type="number" id="c_per" min="0.05" max="5" step="0.05" placeholder="үнэлгээгээр"></label>
+          <label>Хамгийн бага TP (pip, форекс)<input type="number" id="c_tp" min="0" step="5" placeholder="0"></label>
+          <label>Хамгийн бага R:R<input type="number" id="c_rr" min="0" max="10" step="0.1" placeholder="0"></label>
+          <label>Шаардлага хангаагүй бол<select id="c_mode"><option value="extend">TP-г сунгах</option><option value="filter">Санааг хасах</option></select></label>
+          <div class="calcbtns"><button class="primary" type="submit">Тооцоолох</button><button type="button" id="c_reset">Анхны утга</button></div>
+        </form>
+        <div id="calcwarn"></div>
+        <div class="kpis" id="calctot"></div>
+        <div class="scroll"><table class="rv" id="calctable"></table></div>
+        <p class="notes" id="calcnote"></p>
+      </div>
+    </section>
+
+    <section id="view-account" hidden>
+      <div class="banner" style="margin-top:0">5ers MT5 данснаас ЗӨВХӨН УНШСАН мэдээлэл (30 секунд тутам шинэчилнэ). Бот захиалга илгээхгүй, нууц үг хадгалахгүй. <span id="acmeta" class="meta"></span></div>
+      <div class="kpis" id="ackpis"></div>
+      <div class="box"><h2>Нээлттэй позиц ба захиалга</h2><div class="scroll"><table class="rv" id="acpos"></table></div><div id="acwarn" class="sub" style="margin-top:6px"></div></div>
+      <div class="cols2">
+        <div class="box"><h2>Арилжааны статистик</h2><div class="scroll"><table class="rv" id="acstats"></table></div></div>
+        <div class="box"><h2>Символоор цэвэр P/L</h2><div id="acsym"></div></div>
+      </div>
+      <div class="box"><h2>Гүйцэтгэлийн шинжилгээ</h2><div class="sub">Таны MT5-ийн хаагдсан арилжаанаас автоматаар тооцсон түүхэн тоо — хөрөнгө оруулалтын зөвлөгөө биш.</div>
+        <div id="acnotes" style="margin-top:8px"></div><div class="kpis" id="ankpis"></div>
+        <div class="cols2"><div class="scroll"><table class="rv" id="angrp1"></table></div><div class="scroll"><table class="rv" id="angrp2"></table></div></div></div>
+      <div class="box"><h2>Хаагдсан арилжааны түүх</h2><div class="scroll"><table class="rv" id="actrades"></table></div></div>
+    </section>
+    <section id="view-journal" hidden>
+      <p class="sub">Бодитоор хийсэн арилжаагаа энд бүртгэнэ (санааны карт дээрх «Журналд нэмэх» товчоор). Хаагдсан арилжааны P/L-ээс өнөөдрийн алдагдлын төсөв, дараалсан алдагдлын анхааруулга тооцогдоно. Бот өөрөө арилжаа хийхгүй.</p>
+      <div id="jwarn"></div>
+      <div class="kpis" id="jstats"></div>
+      <div class="scroll"><table class="rv" id="jtable"></table></div>
+    </section>
+
+    <section id="view-perf" hidden>
+      <div class="kpis" id="pfkpis"></div>
+      <div id="pfnote"></div>
+      <div class="cols2">
+        <div class="box"><h2>Онооны бүлгээр</h2><div class="sub">Оноо өндөр байх тусам TP1-д илүү хүрдэг бол оноо утгатай. Шалгалтын багана нь загвар хараагүй өгөгдөл.</div><div class="scroll" style="margin-top:8px"><table class="rv" id="pfbins"></table></div></div>
+        <div class="box"><h2>Төрөл, сетап, захиалгаар</h2><div class="scroll"><table class="rv" id="pfkind"></table></div></div>
+      </div>
+      <div class="cols2">
+        <div class="box"><h2>Хэрэгслээр (шилдэг ба сул)</h2><div class="scroll"><table class="rv" id="pfsym"></table></div></div>
+        <div class="box"><h2>Давуу тал хайх судалгаа</h2><div class="mini" id="pfres"></div></div>
+      </div>
+      <div class="box">
+        <h2>Өмнөх санаануудын бодит үр дүн (review)</h2>
+        <p class="sub" style="margin-top:0">Хадгалагдсан тайлангуудын санаа TP/SL-д хүрсэн эсэхийг бодит H1 үнээр шалгана.</p>
+        <button id="rvbtn" data-private>Review ажиллуулах</button>
+        <div id="review" style="margin-top:12px"></div>
+      </div>
+    </section>
+
+    <section id="view-research" hidden>
+      <p class="sub">Банк, шинжээчийн прогноз (views/bank_views.json). Зэрэглэл A–D нь эх сурвалжийн жин. «Баталгаажаагүй» нь мэдээний сайтаас авсан, банкны анхны тайлангаар шалгаагүй гэсэн үг.</p>
+      <div class="chips" id="rsfilter" style="margin:0 0 10px"></div>
+      <div class="scroll"><table class="rv" id="rstable"></table></div>
+      <div class="box" style="margin-top:14px"><h2>Судалгааны лавлах</h2>
+        <p class="sub">Нийтэд нээлттэй банк, шинжээч, төв банкны эх сурвалж. Зохиогчийн эрхтэй текстийг хуулбарлахгүй — прогнозын тоо, чиглэлийг л «add-view»-ээр тэмдэглэнэ.</p>
+        <div id="rsdir"></div></div>
+    </section>
+
+    <section id="view-cbank" hidden>
+      <div class="banner" style="margin-top:0">Зөвхөн мэдээлэл: албан ёсны RSS (Fed, ECB, BoE, BoJ) ба FXStreet-ийн гарчиг. Hawk-dove оноо нь мэдэгдлийн тогтмол хэллэгийн жагсаалтаар тооцсон, түүхэн шалгалтаар баталгаажаагүй — ботын оноонд ороогүй.</div>
+      <div class="box"><h2>FOMC мэдэгдлийн ялгаа</h2><div id="cbfomc" class="sub">Ачаалж байна…</div></div>
+      <div class="box"><h2>АНУ-ын хүү ба эрсдэл</h2><div class="mini" id="cbus"></div></div>
+      <div class="box"><h2>Төв банкуудын сүүлийн мэдээ</h2><div id="cbitems"></div></div>
+      <div class="box"><h2>Мэдээний гарчиг</h2><div id="cbnews"></div></div>
+    </section>
+    <section id="view-sources" hidden>
+      <p class="sub">Бот ашиглаж буй өгөгдөл бүрийн төлөв. Хуучирсан үнээр санаа гаргахгүй.</p>
+      <div class="scroll"><table class="rv" id="srctable"></table></div>
+      <div class="box" style="margin-top:12px"><h2>Сүүлийн тайлангийн тэмдэглэл</h2><ul class="notes" id="srcnotes" style="margin-top:0"></ul></div>
+    </section>
+
+    <section id="view-settings" hidden>
+      <p class="sub">Өөрчлөлт config.json-д хадгалагдаж, дараагийн «Шинэ санаа гаргах»-аас үйлчилнэ.</p>
+      <div class="box"><h2>Данс ба дүрэм</h2><div class="mini" id="setro"></div></div>
+      <form class="box" id="setform"><h2>Тохиргоо</h2><div class="form2" id="setfields"></div>
+        <div style="margin-top:12px;display:flex;gap:10px;align-items:center"><button class="primary" type="submit">Хадгалах</button><span class="sub" id="setmsg"></span></div></form>
+    </section>
+
+    <section id="view-log" hidden><pre class="log" id="log">Одоогоор лог алга.</pre></section>
+    <p class="notes">Энэ нь шинжилгээний хэрэгсэл, санхүүгийн зөвлөгөө биш. Бот захиалга илгээхгүй; арилжааны шийдвэрийг та өөрөө гаргана.</p>
+  </main>
+
+  <aside class="rail" id="rail">
+    <div class="box"><button class="primary" id="livebtn" style="width:100%">⟳ Мэдээлэл шинэчлэх</button>
+      <div class="sub" id="livemeta" style="margin-top:6px">MT5 данс ба мэдээний календарийг шууд татна (минут тутам автоматаар).</div></div>
+    <div class="box"><h2>Өдрийн эрсдэл</h2><div class="mini" id="rlrisk"></div></div>
+    <div class="box"><h2>Дараагийн мэдээ</h2><div class="mini" id="rlnews"></div></div>
+    <div class="box"><h2>Төлөв</h2><div class="mini" id="rlstate"></div></div>
+  </aside>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const SETUP = {PULLBACK: "Трендийн буцалт", BREAKOUT: "Бүтцийн сэтлэлт", MEAN_REVERSION: "Дундаж руу буцах"};
+const KIND = {forex: "Форекс", index: "Индекс", metal: "Металл", crypto: "Крипто", energy: "Эрчим хүч"};
+const LABEL = {trend: "Тренд (D1/H4)", strength: "Трендийн хүч", momentum: "Моментум", setup: "Сетап чанар", rr: "Өгөөж/Эрсдэл", room: "Чөлөөт зай",
+  chart: "График/SMC", ccy_strength: "Валютын хүч", sentiment: "Сэтгэл зүй",
+  banks: "Банкууд", analysts: "Шинжээчид", cot: "COT байршил", news: "Мэдээ"};
+const EXTRA = ["chart", "ccy_strength", "sentiment", "banks", "analysts", "cot", "news"];
+const MAX = {trend: 25, strength: 15, momentum: 15, setup: 20, rr: 15, room: 10};
+const STATUS = {WIN: "Хожсон", LOSS: "Алдсан", OPEN: "Нээлттэй", PENDING: "Хүлээгдэж буй", EXPIRED: "Хугацаа дууссан", NO_DATA: "Өгөгдөлгүй"};
+const TITLES = {overview: "Тойм", market: "Зах зээл", ideas: "Арилжааны санаанууд", chart: "График", calendar: "Эдийн засгийн календарь", risk: "Эрсдэлийн удирдлага", account: "Данс (MT5)",
+  journal: "Арилжааны журнал", perf: "Гүйцэтгэл", research: "Банк, шинжээчийн дүгнэлт", cbank: "Төв банк, мэдээ", sources: "Өгөгдлийн эх сурвалж", settings: "Тохиргоо", log: "Лог"};
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const dp = p => p > 300 ? 2 : p > 20 ? 3 : 5;
+const fx = (v, d) => v == null ? "—" : Number(v).toFixed(d);
+const usd = v => "$" + Number(v || 0).toLocaleString("en-US", {maximumFractionDigits: 0});
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const sgn = (v, d = 2, suf = "") => v == null ? "—" : `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : ""}${Number(v).toFixed(d)}${suf}</span>`;
+const getJ = async u => { const r = await fetch(u); if (r.status === 401) { location.reload(); throw new Error("нэвтрэх шаардлагатай"); } return r.json(); };
+let REP = null, VIEW = "overview", MODE = {public: false};
+
+try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$("#theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  const nxt = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = nxt;
+  try { localStorage.setItem("theme", nxt); } catch (e) {}
+  if (REP) render(REP);
+  drawChart();
+};
+function show(view) {
+  if (MODE.public && ["account", "journal", "settings"].includes(view)) view = "overview";
+  VIEW = view;
+  document.querySelector("main").classList.toggle("withctl", view === "overview" || view === "ideas");
+  document.querySelectorAll("#nav button[data-view]").forEach(x => x.classList.toggle("on", x.dataset.view === view));
+  const pri = document.querySelector(`#nav button.pri[data-view="${view}"]`);
+  document.getElementById("more").classList.toggle("on", !pri);
+  window.scrollTo({top: 0});
+  Object.keys(TITLES).forEach(t => $("#view-" + t).hidden = t !== view);
+  $("#title").textContent = TITLES[view];
+  try { history.replaceState(null, "", "#" + view); } catch (e) {}
+  if (view === "risk") runCalc();
+  if (view === "journal") loadJournal();
+  if (view === "calendar" || view === "overview") refreshLive(true);       // нээхэд календарь, данс шууд шинэчлэгдэнэ
+  if (view === "account") loadAccount();
+  if (view === "perf") loadPerf();
+  if (view === "research") loadViews();
+  if (view === "sources") loadSources();
+  if (view === "cbank") loadCbank();
+  if (view === "settings") loadSettings();
+  if (view === "chart") loadChart();
+  window.scrollTo(0, 0);
+}
+document.querySelectorAll("#nav button[data-view]").forEach(b => b.onclick = () => { closeMore(); show(b.dataset.view); });
+// Гар утасны «Бусад» хуудас
+function closeMore() { const n = document.getElementById("nav"); n.classList.remove("open"); document.getElementById("more").setAttribute("aria-expanded", "false"); }
+document.getElementById("more").onclick = () => { const n = document.getElementById("nav"); const o = n.classList.toggle("open"); document.getElementById("more").setAttribute("aria-expanded", String(o)); };
+document.getElementById("scrim").onclick = closeMore;
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeMore(); });
+
+// ---------------------------------------------------------------- Санааны карт
+function ladder(i) {
+  const d = dp(i.entry);
+  const pts = [["TP2", i.tp2, "--buy"], ["TP1", i.tp1, "--buy"], ["Орох", i.entry, "--accent"], ["SL", i.stop, "--sell"]]
+    .sort((x, y) => y[1] - x[1]);
+  const all = pts.map(p => p[1]).concat([i.last_price]);
+  const hi = Math.max(...all), lo = Math.min(...all), H = 156, pad = 12;
+  const y = v => pad + (hi - v) / ((hi - lo) || 1) * (H - 2 * pad);
+  const labelY = [];
+  pts.forEach((p, k) => { let ty = y(p[1]) + 4; if (k > 0 && ty - labelY[k - 1] < 13) ty = labelY[k - 1] + 13; labelY.push(ty); });
+  const over = labelY[labelY.length - 1] - (H - 2);
+  if (over > 0) for (let k = labelY.length - 1; k >= 0; k--) { labelY[k] -= over; if (k > 0 && labelY[k] - labelY[k - 1] >= 13) break; }
+  let s = `<svg viewBox="0 0 125 ${H}" width="125" height="${H}" role="img" aria-label="Үнийн түвшин">`;
+  s += `<rect x="14" y="${Math.min(y(i.entry), y(i.tp2))}" width="6" height="${Math.abs(y(i.tp2) - y(i.entry))}" fill="${css("--buy")}" opacity=".35"/>`;
+  s += `<rect x="14" y="${Math.min(y(i.entry), y(i.stop))}" width="6" height="${Math.abs(y(i.stop) - y(i.entry))}" fill="${css("--sell")}" opacity=".35"/>`;
+  pts.forEach(([n, v, c], k) => {
+    s += `<line x1="8" x2="26" y1="${y(v)}" y2="${y(v)}" stroke="${css(c)}" stroke-width="2"/>`;
+    if (Math.abs(labelY[k] - 4 - y(v)) > 3) s += `<line x1="26" x2="29" y1="${y(v)}" y2="${labelY[k] - 4}" stroke="${css("--muted")}" stroke-width="1"/>`;
+    s += `<text x="30" y="${labelY[k]}" font-size="10.5" fill="${css("--ink")}">${n} ${fx(v, d)}</text>`;
+  });
+  s += `<circle cx="17" cy="${y(i.last_price)}" r="3.5" fill="${css("--ink")}"><title>Одоогийн үнэ ${fx(i.last_price, d)}</title></circle>`;
+  return s + "</svg>";
+}
+const IDEAS = {};
+window.applyOffset = n => {
+  const i = IDEAS[n], d = dp(i.entry), v = document.getElementById("mt5_" + n).value;
+  const off = (v !== "" && !isNaN(v)) ? Number(v) - i.last_price : 0;
+  document.getElementById("e_" + n).textContent = fx(i.entry + off, d);
+  document.getElementById("sl_" + n).textContent = fx(i.stop + off, d);
+  document.getElementById("tp_" + n).textContent = fx(i.tp1 + off, d) + " / " + fx(i.tp2 + off, d);
+  document.getElementById("off_" + n).textContent = off ? `зөрүү ${off > 0 ? "+" : ""}${fx(off, d)} — түвшнүүд MT5 үнэд шилжсэн` : "";
+};
+window.copyTrade = async (n, btn) => {
+  const i = IDEAS[n], g = id => document.getElementById(id + "_" + n).textContent;
+  const txt = `${i.symbol} ${i.side} ${i.order_type} ${i.lots == null ? "" : Number(i.lots).toFixed(2) + " lot"} | Entry ${g("e")} | SL ${g("sl")} | TP ${g("tp")}`;
+  try { await navigator.clipboard.writeText(txt); btn.textContent = "Хуулагдлаа ✓"; }
+  catch (e) { btn.textContent = "Хуулж чадсангүй"; }
+  setTimeout(() => btn.textContent = "Түвшин хуулах", 1500);
+};
+window.openChart = sym => { $("#chsym").value = sym; show("chart"); };
+window.openIdea = n => { show("ideas"); const el = document.getElementById("idea_" + n); if (el) el.scrollIntoView({block: "start"}); };
+
+function card(i, n) {
+  IDEAS[n] = i;
+  const d = dp(i.entry), g = i.grade;
+  const tech = Object.keys(MAX).map(k => `<span>${LABEL[k]}</span><span class="t"><i style="width:${100 * (i.breakdown[k] || 0) / MAX[k]}%"></i></span><span class="n">${i.breakdown[k] ?? 0}/${MAX[k]}</span>`).join("");
+  const inst = EXTRA.filter(k => k in i.breakdown).map(k => {
+    const v = i.breakdown[k]; return `<span>${LABEL[k]}</span><span></span><span class="n ${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : ""}${Number(v).toFixed(1)}</span>`;
+  }).join("");
+  const ev = i.expected_r == null ? "" : `<span class="chip ${i.expected_r >= 0 ? "pos" : "neg"}" title="Түүхэн хувь × R:R − зардал">EV ${i.expected_r >= 0 ? "+" : ""}${Number(i.expected_r).toFixed(2)}R</span>`;
+  const lock = i.news_lock ? `<span class="chip neg">Мэдээний түгжээ</span>` : "";
+  const evid = i.evidence === "LOW" ? `<span class="chip lowev" title="Түүхэн тестээр эерэг хүлээгдэх утга батлагдаагүй">Нотолгоо сул</span>` : "";
+  const reg = i.regime ? `<span class="chip">${esc(i.regime)}</span>` : "";
+  const pr = v => v == null ? "—" : Math.round(100 * v) + "%";
+  const probs = i.prob_tp1 == null ? "" : `<div class="probs"><span>Түүхэн магадлал</span><b class="pos">TP1 ${pr(i.prob_tp1)}</b><b class="pos">TP2 ${pr(i.prob_tp2)}</b><b class="neg">SL/хугацаа ${pr(1 - i.prob_tp1)}</b></div>`;
+  const nw = (i.news_windows || []).slice(0, 3).map(w => `<div class="inval">⏱ Захиалга биелүүлэхгүй: ${esc(w)}</div>`).join("");
+  const valid = i.valid_until ? `<div class="inval">Хүчинтэй: ${esc(i.valid_until)}${i.data_age_h != null ? ` · өгөгдлийн нас ${i.data_age_h} цаг` : ""}${i.price_source ? ` · үнэ: ${i.price_source === "mt5" ? "MT5 (брокер)" : esc(i.price_source)}` : ""}${i.spread != null ? ` · спред ${i.spread} (SL-ийн ${(100 * i.spread_r).toFixed(1)}%)` : ""}${i.swap_r != null ? ` · своп SL-ийн ${(100 * i.swap_r).toFixed(1)}% (${i.hold_nights} шөнө)` : ""}${i.comm_r ? ` · шимтгэл ${(100 * i.comm_r).toFixed(1)}%` : ""}</div>` : "";
+  const mz = v => v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(1);
+  const macro = i.macro ? `<div class="inval" title="Санааны чиглэлд нийцүүлсэн утга: эерэг = чиглэлийг дэмжинэ. Судалгааны шалгалтаар давуу тал батлагдаагүй тул оноонд ороогүй.">Макро (мэдээлэл, оноонд ороогүй): ${i.macro.carry != null ? `carry ${i.macro.carry > 0 ? "+" : ""}${i.macro.carry.toFixed(2)}% · ` : ""}momentum 1/3/12 сар ${mz(i.macro.mom_1m)} / ${mz(i.macro.mom_3m)} / ${mz(i.macro.mom_12m)}${i.macro.y2_al != null ? ` · АНУ 2Y ${i.macro.y2_al > 0 ? "+" : ""}${i.macro.y2_al}bp` : ""}${i.macro.dxy_al != null ? ` · доллар ${i.macro.dxy_al > 0 ? "+" : ""}${i.macro.dxy_al}%` : ""}${i.macro.vix != null ? ` · VIX ${Number(i.macro.vix).toFixed(1)}${i.macro.vix_al != null ? ` (${i.macro.vix_al > 0 ? "+" : ""}${i.macro.vix_al})` : ""}` : ""}${i.macro.ry_al != null ? ` · бодит хүү ${i.macro.ry_al > 0 ? "+" : ""}${i.macro.ry_al}bp` : ""}${i.macro.gvz != null && i.macro.gvz_al != null ? ` · GVZ ${i.macro.gvz} (${i.macro.gvz_al > 0 ? "+" : ""}${i.macro.gvz_al})` : ""}${i.macro.eq_al != null ? ` · хувьцаа ${i.macro.eq_al > 0 ? "+" : ""}${i.macro.eq_al}%` : ""}${i.macro.y2d1_al != null ? ` · мэдээний цочрол ${i.macro.y2d1_al > 0 ? "+" : ""}${i.macro.y2d1_al}bp` : ""}</div>` : "";
+  const warns = i.warnings || [];
+  return `<article class="card${i.news_lock || !i.lots ? " dim" : ""}" id="idea_${n}">
+    <div class="top">
+      <div><div class="sym">#${n} ${esc(i.symbol)}</div>
+        <span class="tag ${i.side}">${i.side === "BUY" ? "▲ BUY" : "▼ SELL"}</span><span class="kind">${KIND[i.kind] || esc(i.kind)} · ${SETUP[i.setup] || esc(i.setup)} · <b>${esc(i.order_type)}</b></span>
+        <div class="chips">${ev}${evid}${lock}${reg}</div></div>
+      <div class="score"><div class="meta">эрэмбийн оноо</div><b>${Math.round(i.score)}</b><span class="meta">/100</span><span class="grade" style="background:${css("--g" + g)}">${g}</span>
+        ${i.tech_score != null ? `<div class="meta">техник ${Math.round(i.tech_score)}</div>` : ""}</div>
+    </div>
+    <div class="body">
+      <table class="lv">
+        <tr><td>Зах зээлийн үнэ</td><td>${fx(i.last_price, d)}</td></tr>
+        <tr><td><label for="mt5_${n}">MT5 дээрх үнэ</label></td><td><input id="mt5_${n}" class="mt5" type="number" step="any" placeholder="${fx(i.last_price, d)}" oninput="applyOffset(${n})"></td></tr>
+        <tr><td>Орох (${esc(i.order_type)})</td><td id="e_${n}">${fx(i.entry, d)}</td></tr>
+        <tr><td>Stop loss</td><td class="neg" id="sl_${n}">${fx(i.stop, d)}</td></tr>
+        <tr><td>TP1 / TP2</td><td class="pos" id="tp_${n}">${fx(i.tp1, d)} / ${fx(i.tp2, d)}</td></tr>
+        <tr><td>R:R · H4 ATR</td><td>${i.rr} · ${fx(i.atr_h4, d)}</td></tr>
+        <tr><td>Лот · Эрсдэл</td><td>${i.lots ? `<b>${Number(i.lots).toFixed(2)}</b> · ${Number(i.risk_pct).toFixed(2)}% (${usd(i.risk_usd)})` : `<span class="notrade">Арилжаалахгүй — ${esc(noTradeReason(i))}</span>`}</td></tr>
+      </table>
+      <div class="side">${ladder(i)}<button type="button" class="copy" onclick="openChart('${esc(i.symbol)}')">График</button><button type="button" class="copy" onclick="copyTrade(${n}, this)">Түвшин хуулах</button><button type="button" class="copy" onclick="journalAdd(${n}, this)">Журналд нэмэх</button></div>
+    </div>
+    <div class="meta" id="off_${n}"></div>
+    ${probs}
+    ${i.invalidation ? `<div class="inval">✕ ${esc(i.invalidation)}</div>` : ""}${valid}${macro}${nw}
+    ${i.hist_win_rate != null ? `<div class="hist"><b>${Math.round(100 * i.hist_win_rate)}%</b> — түүхэн тестээр ижил төрлийн ${Number(i.hist_n).toLocaleString("en-US")} санаанаас TP1-д хүрсэн хувь (дундаж ${i.hist_avg_r >= 0 ? "+" : ""}${Number(i.hist_avg_r).toFixed(2)}R)</div>` : ""}
+    <ul class="r">${i.reasons.slice(0, 3).map(r => `<li>${esc(r)}</li>`).join("")}${warns.slice(0, 2).map(w => `<li class="w">${esc(w)}</li>`).join("")}</ul>
+    <details><summary>Бүх шалтгаан ба онооны задаргаа (${i.reasons.length} шалтгаан, ${warns.length} анхааруулга)</summary>
+      <ul class="r" style="margin:8px 0">${i.reasons.slice(3).map(r => `<li>${esc(r)}</li>`).join("")}${warns.slice(2).map(w => `<li class="w">${esc(w)}</li>`).join("")}</ul>
+      <div class="bd">${tech}${inst}</div></details>
+  </article>`;
+}
+
+// ---------------------------------------------------------------- Тайлан → бүх дэлгэц
+const ccyOf = i => i.kind === "forex" ? [i.symbol.slice(0, 3), i.symbol.slice(3, 6)] : [i.symbol];
+function exposure(ideas) {
+  const m = {};
+  ideas.filter(i => i.lots > 0).forEach(i => {
+    const sd = i.side === "BUY" ? 1 : -1;
+    if (i.kind === "forex") { m[i.symbol.slice(0, 3)] = (m[i.symbol.slice(0, 3)] || 0) + sd * i.risk_usd; m[i.symbol.slice(3, 6)] = (m[i.symbol.slice(3, 6)] || 0) - sd * i.risk_usd; }
+    else m[i.symbol] = (m[i.symbol] || 0) + sd * i.risk_usd;
+  });
+  return Object.entries(m).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+}
+const meterCls = p => p >= 90 ? "hot" : p >= 60 ? "mid" : "";
+const meter = p => `<div class="meter ${meterCls(p)}"><i style="width:${Math.max(0, Math.min(100, p))}%"></i></div>`;
+let ACT = null;
+const m2 = v => v == null ? "—" : `<span class="${v > 0 ? "pos" : v < 0 ? "neg" : ""}">${v > 0 ? "+" : ""}${Number(v).toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>`;
+async function loadAccount() {
+  clearTimeout(ACT);
+  let d;
+  try { d = await getJ("/api/account"); } catch (e) { d = {error: e.message}; }
+  if (VIEW === "account") ACT = setTimeout(loadAccount, 30000);
+  if (!d || !d.account) {
+    $("#ackpis").innerHTML = `<div class="empty">${esc((d && d.error) || "MT5 данс уншиж чадсангүй")} — MT5 терминалаа нээж дансандаа нэвтэрнэ үү.</div>`;
+    return;
+  }
+  const a = d.account, r = d.rules, cur = a.currency || "USD";
+  $("#acmeta").textContent = `${a.login} · ${a.server} · ${(d.created_utc || "").slice(11, 19)} UTC${d.stale ? " · ХУУЧИН (холбогдсонгүй)" : ""}`;
+  $("#ackpis").innerHTML = kpiHtml([
+    ["Баланс", usd(a.balance), null, `Equity ${usd(a.equity)}`],
+    ["Хөвөгч P/L", m2(a.floating), null, `${d.positions.length} позиц · маржин ${a.margin_level ? a.margin_level.toFixed(0) + "%" : "—"}`],
+    ["Өнөөдрийн P/L", m2(a.day_pnl), null, `хаагдсан ${a.closed_today >= 0 ? "+" : ""}${a.closed_today.toFixed(2)} · сервер 00:00-оос`],
+    ["Өдрийн хязгаар хүртэл", usd(r.daily_room), r.daily_used_pct, `equity ${usd(r.daily_floor_equity)}-оос доош унах ёсгүй`],
+    ["Нээлттэй эрсдэл (SL хүртэл)", usd(d.open_risk_usd), r.daily_loss_limit ? 100 * d.open_risk_usd / r.daily_loss_limit : null, `өдрийн хязгаарын ${r.daily_loss_limit ? (100 * d.open_risk_usd / r.daily_loss_limit).toFixed(0) : "—"}%`],
+    ["Нийт хязгаар хүртэл", usd(r.max_room), r.max_loss_limit ? 100 * (1 - r.max_room / r.max_loss_limit) : null, `equity ${usd(r.max_floor_equity)} доод хязгаар`],
+    ["Ашгийн зорилт", `${r.target_progress_pct}%`, Math.max(0, r.target_progress_pct || 0), `${usd(r.target_equity)} хүрэх ёстой`],
+  ]);
+  const pr = p => `<td class="num">${p == null ? "—" : Number(p).toString()}</td>`;
+  $("#acpos").innerHTML = `<tr><th>Символ</th><th>Чиглэл</th><th>Лот</th><th>Орсон</th><th>Одоо</th><th>SL</th><th>TP</th><th>P/L</th><th>SL хүртэл</th></tr>`
+    + d.positions.map(p => `<tr><td><b>${esc(p.symbol)}</b><div class="meta">${esc(p.open_time.slice(5, 16).replace("T", " "))}</div></td><td class="${p.side === "BUY" ? "pos" : "neg"}">${p.side}</td><td class="num">${p.volume}</td>${pr(p.open_price)}${pr(p.price)}${pr(p.sl)}${pr(p.tp)}<td class="num">${m2(p.profit)}</td><td class="num">${p.risk_now == null ? '<span class="neg">SL-гүй!</span>' : p.risk_now > 0 ? "−" + p.risk_now.toFixed(0) : '<span class="pos">хамгаалсан</span>'}</td></tr>`).join("")
+    + d.orders.map(o => `<tr><td><b>${esc(o.symbol)}</b><div class="meta">хүлээгдэж буй</div></td><td>${esc(o.type)}</td><td class="num">${o.volume}</td>${pr(o.price)}<td>—</td>${pr(o.sl)}${pr(o.tp)}<td>—</td><td class="num">${o.risk_to_sl == null ? '<span class="neg">SL-гүй!</span>' : "−" + o.risk_to_sl.toFixed(0)}</td></tr>`).join("")
+    || `<tr><td class="empty">Нээлттэй позиц алга.</td></tr>`;
+  const ex = Object.entries(d.currency_exposure || {});
+  $("#acwarn").innerHTML = (d.positions_without_sl.length ? `<div class="neg">⚠ SL-гүй: ${esc(d.positions_without_sl.join(", "))}</div>` : "")
+    + (ex.length ? `Валютын төвлөрөл (SL хүртэлх эрсдэл, + урт / − богино): ${ex.map(([k, v]) => `<b>${esc(k)}</b> ${m2(v)}`).join(" · ")}` : "");
+  const st = (s, l) => s && s.n ? [l, s.n, m2(s.net), (100 * s.win_rate).toFixed(0) + "%", s.avg_win != null ? s.avg_win.toFixed(0) : "—", s.avg_loss != null ? s.avg_loss.toFixed(0) : "—", s.profit_factor ?? "—", m2(s.max_drawdown), m2(s.swap)] : [l, 0, "—", "—", "—", "—", "—", "—", "—"];
+  $("#acstats").innerHTML = `<tr><th></th><th>n</th><th>Цэвэр</th><th>Хожил</th><th>Дундаж ашиг</th><th>Дундаж алдагдал</th><th>PF</th><th>Их уналт</th><th>Своп</th></tr>`
+    + [st(d.stats, "Бүгд"), st(d.stats_30d, "30 хоног")].map(r_ => `<tr>${r_.map((c, k) => `<td class="${k ? "num" : ""}">${c}</td>`).join("")}</tr>`).join("");
+  const bs = Object.entries((d.stats || {}).by_symbol || {}), mx = Math.max(1, ...bs.map(([, v]) => Math.abs(v)));
+  $("#acsym").innerHTML = bs.map(([k, v]) => `<div class="row" style="display:grid;grid-template-columns:70px 1fr 80px;gap:8px;align-items:center;margin:3px 0"><span>${esc(k)}</span><div style="height:8px;background:var(--line);border-radius:4px;overflow:hidden"><i style="display:block;height:100%;width:${100 * Math.abs(v) / mx}%;background:var(${v >= 0 ? "--buy" : "--sell"})"></i></div><span class="num">${m2(v)}</span></div>`).join("") || '<div class="empty">Хаагдсан арилжаа алга.</div>';
+  const an = d.analysis || {};
+  const lv = {bad: ["neg", "⚠"], warn: ["warnc", "!"], good: ["pos", "✓"], info: ["meta", "•"]};
+  $("#acnotes").innerHTML = (an.notes || []).map(n => `<div class="${(lv[n.level] || lv.info)[0]}" style="margin:5px 0">${(lv[n.level] || lv.info)[1]} ${esc(n.text)}</div>`).join("") || '<div class="empty">Шинжилгээ хийх арилжаа алга.</div>';
+  $("#ankpis").innerHTML = an.n ? kpiHtml([
+    ["Ашиг / алдагдлын харьцаа", an.payoff != null ? an.payoff.toFixed(2) : "—", null, `дундаж +${(an.avg_win || 0).toFixed(0)} / ${(an.avg_loss || 0).toFixed(0)}`],
+    ["Хожлын хувь / шаардлагатай", `${(100 * an.win_rate).toFixed(0)}% / ${an.breakeven_win_rate != null ? (100 * an.breakeven_win_rate).toFixed(0) + "%" : "—"}`, null, `нөөц ${an.margin_of_safety != null ? ((an.margin_of_safety > 0 ? "+" : "") + (100 * an.margin_of_safety).toFixed(0)) : "—"} пункт`],
+    ["Барих хугацаа (хожил / алдагдал)", `${an.hold_win_h ?? "—"} / ${an.hold_loss_h ?? "—"} цаг`, null, `дараалсан: ${an.max_win_streak} хожил, ${an.max_loss_streak} алдагдал`],
+    ["Орох үед SL", an.sl_at_entry && an.sl_at_entry.known ? `${an.sl_at_entry.with_sl}/${an.sl_at_entry.known}` : "—", null, `лот ${an.lot_range ? an.lot_range.join("–") : "—"} · зардал ${(100 * (an.cost_share || 0)).toFixed(0)}%`],
+  ]) : "";
+  const gt = (title, rows, fmt) => `<tr><th>${title}</th><th class="num">n</th><th class="num">Цэвэр</th><th class="num">Хожил</th></tr>` + (rows || []).map(x => `<tr><td>${esc(fmt ? fmt(x.key) : x.key)}</td><td class="num">${x.n}</td><td class="num">${m2(x.net)}</td><td class="num">${(100 * x.win).toFixed(0)}%</td></tr>`).join("");
+  const wd = ["Да", "Мя", "Лха", "Пү", "Ба", "Бя", "Ня"];
+  $("#angrp1").innerHTML = gt("Чиглэл", an.by_side) + gt("Лот", an.by_volume, k => k + " лот") + (an.bot_match ? gt("Ботын санаатай", an.bot_match) : "");
+  $("#angrp2").innerHTML = gt("Сесс (нээсэн цаг)", an.by_session) + gt("Гаралт", an.by_reason) + gt("Гараг", an.by_weekday, k => wd[k]);
+  $("#actrades").innerHTML = `<tr><th>Хаагдсан</th><th>Символ</th><th>Чиглэл</th><th>Лот</th><th>Орсон</th><th>Гарсан</th><th>Своп</th><th>Цэвэр</th><th>Шалтгаан</th></tr>`
+    + d.trades.slice().reverse().slice(0, 100).map(t => `<tr><td class="meta">${esc(t.close_time.slice(5, 16).replace("T", " "))}</td><td><b>${esc(t.symbol)}</b></td><td class="${t.side === "BUY" ? "pos" : "neg"}">${t.side}</td><td class="num">${t.volume}</td>${pr(t.open_price)}${pr(t.close_price)}<td class="num">${t.swap.toFixed(2)}</td><td class="num">${m2(t.net)}</td><td>${esc(t.reason)}</td></tr>`).join("");
+}
+function kpiHtml(rows) {
+  return rows.map(([l, v, m, c]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div>${c ? `<div class="cmp">${c}</div>` : ""}${m != null ? meter(m) : ""}</div>`).join("");
+}
+let MK = {kind: "all", sort: "symbol", dir: 1}, CALHIGH = true;
+
+function noTradeReason(i) {
+  const w = (i.warnings || []).find(x => /позицуудын SL|төсөв|төсв|түгжээ|Оноо бага|Хамгийн бага лот|Лот тооцоолж/.test(x)) || "";
+  return /позицуудын SL/.test(w) ? "нээлттэй позицууд төсвийг дүүргэсэн" : /төсөв дууссан/.test(w) ? "өдрийн төсөв дууссан"
+    : /түгжээ/i.test(w) || i.news_lock ? "мэдээний түгжээ" : /Оноо бага/.test(w) ? "оноо бага (D)" : /Хамгийн бага лот/.test(w) ? "хамгийн бага лот ч хэт эрсдэлтэй"
+    : w ? w.slice(0, 60) : "лот 0";
+}
+// Тоймын KPI — MT5 холбогдсон бол бодит данс/позицоор, үгүй бол санааны тайлангаар
+function renderKpis() {
+  if (!REP) return;
+  const s = REP.summary, a = REP.account, A = LIVE && LIVE.account, tradable = REP.ideas.filter(i => i.lots > 0).length;
+  const bal = A ? A.balance : s.balance, tgt = A && A.rules ? A.rules : null;
+  const why = !tradable && REP.ideas.length ? noTradeReason(REP.ideas[0]) : "";
+  const rows = [
+    ["Баланс", usd(bal), tgt ? Math.max(0, tgt.target_progress_pct || 0) : null,
+     tgt ? `equity ${usd(A.equity)} · зорилт ${usd(tgt.target_equity)} (${tgt.target_progress_pct}%)` : `зорилт ${usd(s.profit_target_usd)} (${a.profit_target_pct}%) · ${MODE.public ? "жишээ данс" : "config"}`],
+    ["Арилжаалах санаа", `${tradable} / ${REP.ideas.length}`, null, why ? `<span class="notrade">${esc(why)}</span>` : (s.evidence_low ? `${s.evidence_low} нь нотолгоо сул` : "")],
+  ];
+  if (A && tgt) {
+    const lim = tgt.daily_loss_limit || 1, share = 100 * (A.open_risk_usd || 0) / lim;
+    rows.push(["Нээлттэй эрсдэл (MT5)", `${usd(A.open_risk_usd)}`, share, `${A.positions} позиц · өдрийн хязгаарын ${share.toFixed(0)}% · бүх SL цохигдвол`]);
+    rows.push(["Өдрийн хязгаар хүртэл", usd(tgt.daily_room), null, `өнөөдрийн P/L ${A.day_pnl >= 0 ? "+" : "−"}${usd(Math.abs(A.day_pnl))} · equity ${usd(tgt.daily_floor_equity)}-оос доош унах ёсгүй`]);
+  } else {
+    const share = (s.share_of_daily_limit || 0) * 100, remain = s.remaining_daily_usd != null ? s.remaining_daily_usd : s.daily_loss_limit_usd;
+    rows.push(["Санаануудын эрсдэл", `${Number(s.total_risk_pct).toFixed(2)}% · ${usd(s.total_risk_usd)}`, share, `өдрийн хязгаарын ${share.toFixed(0)}%`]);
+    rows.push(["Өдрийн алдагдлын төсөв", `${usd(remain)} үлдсэн`, null, `хязгаар ${usd(s.daily_loss_limit_usd)} · тайлангийн үеийн`]);
+  }
+  $("#kpis").innerHTML = kpiHtml(rows);
+  $("#balchip").innerHTML = A ? `Баланс <b>${usd(A.balance)}</b> · MT5` : `Баланс <b>${usd(s.balance)}</b> · ${MODE.public ? "жишээ данс" : "config"}`;
+}
+function render(rep) {
+  REP = rep;
+  const s = rep.summary, a = rep.account, t = new Date(rep.created_utc), mk = rep.market || {};
+  $("#sub").textContent = `Санааны тайлан ${fmtDT(t)} (${ago(t)}) · ${a.program}` + (s.universe ? ` · ${s.analyzed}/${s.universe} хэрэгслээс ${rep.ideas.length} санаа` : "")
+    + ` · үнэ: ${s.price_source || "Yahoo Finance"}`;
+  const bn = [];
+  if (rep.synthetic) bn.push("⚠ Тестийн хиймэл өгөгдөл — бодит зах зээлийг харуулахгүй.");
+  else {
+    if (!s.news_filter) bn.push("ForexFactory календарь ажиллаагүй — NFP, CPI, FOMC-ийг өөрөө шалгана уу.");
+    if (s.rules_verified === false) bn.push(`The5ers дүрэм баталгаажаагүй — өдрийн алдагдлыг хатуу талаар ${s.daily_limit_pct_used}%-иар тооцож байна.`);
+    if (s.evidence_low) bn.push(`${s.evidence_low} / ${rep.ideas.length} санаа «нотолгоо сул»: түүхэн тестээр зардлын дараах эерэг хүлээгдэх утга батлагдаагүй. Бодит мөнгөөр арилжихаас өмнө demo дээр шалгана уу.`);
+    if (s.remaining_daily_usd != null && s.remaining_daily_usd <= 0) bn.push("Өдрийн алдагдлын төсөв дууссан — өнөөдөр шинэ арилжаа хийхгүй.");
+    if (Date.now() - t.getTime() > 6 * 3600e3) bn.push(`Энэ тайлан ${Math.round((Date.now() - t.getTime()) / 3600e3)} цагийн өмнөх — «Шинэ санаа гаргах» дарж шинэчилнэ үү.`);
+  }
+  $("#banner").innerHTML = bn.map(x => `<div class="banner">${esc(x)}</div>`).join("");
+  renderKpis();
+  $("#ovideas").innerHTML = rep.ideas.length ? `<tr><th>#</th><th>Хэрэгсэл</th><th></th><th class="num">Оноо</th><th class="num">EV</th><th class="num">Лот</th><th class="num">Эрсдэл</th></tr>` +
+    rep.ideas.map((i, n) => `<tr class="click" onclick="openIdea(${n + 1})"><td>${n + 1}</td><td><b>${esc(i.symbol)}</b><div class="meta">${KIND[i.kind] || ""} · ${esc(i.order_type)}</div></td>
+      <td><span class="tag ${i.side}">${i.side}</span></td><td class="num">${Math.round(i.score)}<span class="grade sm" style="background:${css("--g" + i.grade)}">${i.grade}</span></td>
+      <td class="num">${i.expected_r == null ? "—" : sgn(i.expected_r, 2, "R")}</td><td class="num">${i.lots ? Number(i.lots).toFixed(2) : `<span class="meta" title="${esc(noTradeReason(i))}">0</span>`}</td><td class="num">${i.lots ? usd(i.risk_usd) : `<span class="meta" title="${esc(noTradeReason(i))}">—</span>`}</td></tr>`).join("")
+    : `<tr><td class="empty">Санаа алга.</td></tr>`;
+  const ins = mk.instruments || [], cs = Object.entries(s.currency_strength || {}).sort((x, y) => y[1] - x[1]);
+  const up = ins.filter(x => x.trend_d1 > 0).length, dn = ins.filter(x => x.trend_d1 < 0).length;
+  const movers = [...ins].filter(x => x.chg_1d != null).sort((x, y) => Math.abs(y.chg_1d) - Math.abs(x.chg_1d)).slice(0, 3);
+  const ov = [];
+  if (cs.length) ov.push(["Хамгийн хүчтэй / сул валют", `<b class="pos">${cs[0][0]}</b> ${cs[0][1].toFixed(2)} · <b class="neg">${cs[cs.length - 1][0]}</b> ${cs[cs.length - 1][1].toFixed(2)}`]);
+  if (ins.length) {
+    ov.push(["D1 чиг хандлага", `<span class="pos">▲ ${up}</span> · <span class="neg">▼ ${dn}</span> · хажуу ${ins.length - up - dn}`]);
+    ov.push(["Өнөөдрийн хамгийн их хөдөлгөөн", movers.map(x => `${esc(x.symbol)} ${sgn(x.chg_1d, 2, "%")}`).join(" · ")]);
+    const vol = [...ins].sort((x, y) => (y.atr_pct || 0) - (x.atr_pct || 0)).slice(0, 3);
+    ov.push(["Хамгийн хэлбэлзэлтэй (ATR%)", vol.map(x => `${esc(x.symbol)} ${x.atr_pct}%`).join(" · ")]);
+  }
+  usRows(rep.us_macro).forEach(r => ov.push(r));
+  cxRows(rep.cross_asset).forEach(r => ov.push(r));
+  if (s.crypto_fng) ov.push(["Crypto Fear & Greed", `${esc(s.crypto_fng.value ?? "")} ${esc(s.crypto_fng.label ?? s.crypto_fng.classification ?? "")}`]);
+  const regs = {}; rep.ideas.forEach(i => { if (i.regime) regs[i.regime] = (regs[i.regime] || 0) + 1; });
+  if (Object.keys(regs).length) ov.push(["Санаануудын зах зээлийн төлөв", Object.entries(regs).map(([k, v]) => `${esc(k)} ${v}`).join(" · ")]);
+  $("#ovmarket").innerHTML = ov.length ? ov.map(([l, v]) => `<div class="row"><span class="meta">${l}</span><span>${v}</span></div>`).join("") : `<div class="empty">Өгөгдөл алга.</div>`;
+  const bt = s.backtest;
+  $("#bt").hidden = !bt;
+  if (bt) $("#bt").innerHTML = `<h2>Түүхэн тестийн үнэн дүн</h2><div class="l">${bt.period[0]} … ${bt.period[1]} · ${Number(bt.resolved).toLocaleString("en-US")} санаа</div>
+    <div style="font-size:18px;font-weight:650;margin-top:2px">${Math.round(100 * bt.base_win_rate)}% нь TP1-д хүрсэн · дундаж ${bt.avg_r >= 0 ? "+" : ""}${Number(bt.avg_r).toFixed(2)}R</div>
+    <div class="sub" style="margin-top:4px">Алдагдалгүй байх босго ${Math.round(100 * bt.breakeven_win_rate)}%. Оноо нь амжилтын магадлал биш: түүхэнд өндөр оноотой санаа илүү хожоогүй. Дэлгэрэнгүйг «Гүйцэтгэл» дэлгэцээс харна уу.</div>`;
+  $("#notes").innerHTML = [...(rep.data_errors || []), ...(rep.closed_markets || []), ...(rep.institutional_notes || [])].map(x => `<li>${esc(x)}</li>`).join("");
+  // ---- Санаанууд
+  $("#ideas").innerHTML = rep.ideas.length ? rep.ideas.map((i, n) => card(i, n + 1)).join("") : `<div class="empty">Санаа алга.</div>`;
+  renderMarket(); renderCalendar(); renderRisk(); renderRail(); applyLive();
+  // ---- Графикийн символын жагсаалт
+  const cur = $("#chsym").value, syms = ins.length ? ins.map(x => x.symbol) : rep.ideas.map(i => i.symbol);
+  const ideaSyms = new Set(rep.ideas.map(i => i.symbol));
+  $("#chsym").innerHTML = syms.map(x => `<option value="${esc(x)}">${esc(x)}${ideaSyms.has(x) ? " ✦" : ""}</option>`).join("");
+  $("#chsym").value = syms.includes(cur) ? cur : (rep.ideas[0] ? rep.ideas[0].symbol : syms[0] || "");
+  $("#srcnotes").innerHTML = [...(rep.data_errors || []), ...(rep.closed_markets || []), ...(rep.institutional_notes || [])].map(x => `<li>${esc(x)}</li>`).join("") || "<li>Тэмдэглэл алга.</li>";
+  if (VIEW === "chart") loadChart();
+}
+
+// ---------------------------------------------------------------- Зах зээл
+const arrow = v => v > 0 ? `<span class="pos">▲</span>` : v < 0 ? `<span class="neg">▼</span>` : `<span class="meta">→</span>`;
+function renderMarket() {
+  const mk = (REP && REP.market) || {}, s = REP.summary, ins = mk.instruments || [];
+  const cs = Object.entries(s.currency_strength || {}).sort((x, y) => y[1] - x[1]);
+  const mx = Math.max(0.5, ...cs.map(x => Math.abs(x[1])));
+  $("#strength").innerHTML = cs.length ? cs.map(([k, v]) => { const w = 50 * Math.abs(v) / mx;
+    return `<div class="sbar"><b>${k}</b><span class="tr"><i style="${v >= 0 ? `left:50%` : `right:50%`};width:${w}%;background:${css(v >= 0 ? "--buy" : "--sell")}"></i></span><span class="${v > 0.15 ? "pos" : v < -0.15 ? "neg" : ""}" style="text-align:right">${v > 0 ? "+" : ""}${v.toFixed(2)}</span></div>`; }).join("") : `<div class="empty">Өгөгдөл алга.</div>`;
+  const cs2 = mk.corr_symbols || [], cm = mk.corr_matrix || [];
+  const cell = v => { if (v == null) return `<td class="meta">—</td>`; const al = Math.min(1, Math.abs(v)) * 0.85;
+    return `<td style="background:color-mix(in srgb, ${css(v >= 0 ? "--buy" : "--sell")} ${Math.round(al * 100)}%, transparent);${Math.abs(v) >= 0.8 && v < 1 ? "font-weight:700" : ""}">${v === 1 ? "" : v.toFixed(2)}</td>`; };
+  $("#corr").innerHTML = cs2.length > 1 ? `<table class="heat"><tr><th></th>${cs2.map(x => `<th>${esc(x.slice(0, 6))}</th>`).join("")}</tr>` +
+    cs2.map((a, r) => `<tr><th style="text-align:right">${esc(a)}</th>${cm[r].map(cell).join("")}</tr>`).join("") + `</table>` : `<div class="empty">Энэ тайланд корреляцийн өгөгдөл алга — «Шинэ санаа гаргах» дарна уу.</div>`;
+  const kinds = ["all", ...new Set(ins.map(x => x.kind))];
+  $("#mkfilter").innerHTML = kinds.map(k => `<button class="chip${MK.kind === k ? " on" : ""}" onclick="mkSet('kind','${k}')">${k === "all" ? "Бүгд" : KIND[k] || k}</button>`).join("");
+  const cols = [["symbol", "Хэрэгсэл"], ["last", "Үнэ", 1], ["chg_1d", "1 өдөр", 1], ["chg_5d", "5 өдөр", 1], ["chg_20d", "20 өдөр", 1], ["atr_pct", "ATR%", 1], ["rsi_d1", "RSI D1", 1], ["trend_d1", "D1"], ["trend_w1", "W1"], ["idea_score", "Санаа", 1]];
+  const rows = ins.filter(x => MK.kind === "all" || x.kind === MK.kind).sort((x, y) => {
+    const a = x[MK.sort], b = y[MK.sort]; if (a == null) return 1; if (b == null) return -1;
+    return (typeof a === "string" ? a.localeCompare(b) : a - b) * MK.dir; });
+  $("#mktable").innerHTML = ins.length ? `<tr>${cols.map(([k, l, n]) => `<th class="sortable${n ? " num" : ""}" onclick="mkSet('sort','${k}')">${l}${MK.sort === k ? (MK.dir > 0 ? " ↑" : " ↓") : ""}</th>`).join("")}</tr>` +
+    rows.map(x => `<tr class="click" onclick="openChart('${esc(x.symbol)}')"><td><b>${esc(x.symbol)}</b> <span class="meta">${KIND[x.kind] || ""}</span></td><td class="num">${fx(x.last, dp(x.last))}</td>
+      <td class="num">${sgn(x.chg_1d, 2, "%")}</td><td class="num">${sgn(x.chg_5d, 2, "%")}</td><td class="num">${sgn(x.chg_20d, 2, "%")}</td><td class="num">${x.atr_pct ?? "—"}</td>
+      <td class="num ${x.rsi_d1 >= 70 ? "neg" : x.rsi_d1 <= 30 ? "pos" : ""}">${x.rsi_d1 ?? "—"}</td><td>${arrow(x.trend_d1)}</td><td>${arrow(x.trend_w1)}</td>
+      <td class="num">${x.idea_side ? `<span class="tag ${x.idea_side}">${x.idea_side}</span> ${x.idea_score}${x.idea_grade ? `<span class="grade sm" style="background:${css("--g" + x.idea_grade)}">${x.idea_grade}</span>` : ""}` : `<span class="meta">WAIT</span>`}</td></tr>`).join("")
+    : `<tr><td class="empty">Энэ тайланд зах зээлийн өгөгдөл алга — «Шинэ санаа гаргах» дарж шинэ тайлан үүсгэнэ үү.</td></tr>`;
+}
+window.mkSet = (k, v) => { if (k === "sort") { MK.dir = MK.sort === v ? -MK.dir : (v === "symbol" ? 1 : -1); MK.sort = v; } else MK[k] = v; renderMarket(); };
+
+// ---------------------------------------------------------------- Календарь
+function countdown(ms) { const m = Math.round(ms / 60000), a = Math.abs(m); const txt = a >= 1440 ? Math.floor(a / 1440) + " өдөр" : a >= 60 ? Math.floor(a / 60) + " ц " + (a % 60) + " мин" : a + " мин"; return m >= 0 ? txt + "-ын дараа" : txt + "-ын өмнө"; }
+function renderCalendar() {
+  const mk = (REP && REP.market) || {}, ev = (mk.calendar || []).filter(e => !CALHIGH || e.impact === "High");
+  const mine = new Set(); REP.ideas.forEach(i => ccyOf(i).forEach(c => mine.add(c))); if (REP.ideas.some(i => i.kind !== "forex")) mine.add("USD");
+  $("#calhigh").classList.toggle("on", CALHIGH);
+  if (!mk.calendar) { $("#cal").innerHTML = `<div class="empty">Энэ тайланд календарийн өгөгдөл алга — «Шинэ санаа гаргах» дарна уу.</div>`; return; }
+  if (!ev.length) { $("#cal").innerHTML = `<div class="empty">${mk.calendar_ok ? "Ойрын 7 хоногт тохирох мэдээ алга." : "Календарь татагдаагүй."}</div>`; return; }
+  const days = {}; ev.forEach(e => { const d = new Date(e.time); const k = d.toLocaleDateString(undefined, {weekday: "long", month: "short", day: "numeric"}); (days[k] = days[k] || []).push([d, e]); });
+  $("#cal").innerHTML = Object.entries(days).map(([day, list]) => `<div class="day">${esc(day)}</div><div class="scroll"><table class="rv"><tr><th>Цаг</th><th>Валют</th><th>Мэдээ</th><th class="num">Бодит</th><th class="num">Прогноз</th><th class="num">Өмнөх</th><th class="num">Хугацаа</th></tr>` +
+    list.map(([d, e]) => { const past = d.getTime() < Date.now(), hit = mine.has(e.ccy);
+      return `<tr style="${past ? "opacity:.55" : ""}"><td>${d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</td><td><span class="chip" style="${hit ? `background:${css("--accent-bg")};color:${css("--accent")};border-color:transparent;font-weight:600` : ""}">${esc(e.ccy)}</span></td>
+        <td><span class="dot ${e.impact}" title="${e.impact}"></span>${hit ? "<b>" : ""}${esc(e.title)}${hit ? "</b>" : ""}</td><td class="num" title="${esc(e.source || "")}"><b>${esc(e.actual || (past ? "…" : "—"))}</b></td><td class="num">${esc(e.forecast || "—")}</td><td class="num">${esc(e.previous || "—")}</td><td class="num meta">${countdown(d.getTime() - Date.now())}</td></tr>`; }).join("") + `</table></div>`).join("");
+}
+$("#calhigh").onclick = () => { CALHIGH = !CALHIGH; renderCalendar(); };
+
+// ---------------------------------------------------------------- Эрсдэл
+function renderRisk() {
+  const s = REP.summary, a = REP.account, ideas = REP.ideas;
+  const share = (s.share_of_daily_limit || 0) * 100, cap = s.open_risk_cap_pct || 0;
+  const remain = s.remaining_daily_usd != null ? s.remaining_daily_usd : s.daily_loss_limit_usd;
+  const used = s.daily_loss_limit_usd ? 100 * (1 - remain / s.daily_loss_limit_usd) : 0;
+  const A = LIVE && LIVE.account;
+  if (A && A.rules) {                    // MT5-ийн бодит позиц + санаануудын нэмэлт эрсдэл
+    const lim = A.rules.daily_loss_limit || 1, tot = (A.open_risk_usd || 0) + (s.total_risk_usd || 0), sh = 100 * tot / lim;
+    $("#riskkpis").innerHTML = kpiHtml([
+      ["Нээлттэй позицын эрсдэл (MT5)", usd(A.open_risk_usd), 100 * (A.open_risk_usd || 0) / lim, `${A.positions} позиц${A.orders ? ` + ${A.orders} захиалга` : ""} · бүх SL цохигдвол`],
+      ["Санаанууд нэмбэл", usd(tot), sh, `өдрийн хязгаарын ${sh.toFixed(0)}% · санаануудын эрсдэл ${usd(s.total_risk_usd)}`],
+      ["Өнөөдрийн P/L", sgn(A.day_pnl, 2), null, `equity ${usd(A.equity)} · хязгаар ${usd(lim)}`],
+      ["Хамгийн муу тохиолдол", usd(Math.max(0, A.rules.daily_room - tot)), null, "бүх SL цохигдсоны дараа өдрийн хязгаар хүртэл үлдэх зай"],
+    ]);
+  } else $("#riskkpis").innerHTML = kpiHtml([
+    ["Нээлттэй эрсдэл (бүх SL)", `${usd(s.total_risk_usd)} · ${Number(s.total_risk_pct).toFixed(2)}%`, cap ? 100 * s.total_risk_pct / cap : null, cap ? `дээд хязгаар ${Number(cap).toFixed(2)}%${s.scaled ? " · хязгаарт тааруулж бууруулсан" : ""}` : ""],
+    ["Өдрийн хязгаарын хэрэглээ", `${share.toFixed(0)}%`, share, "бүх SL цохигдвол"],
+    ["Өнөөдөр алдсан", `${usd(Math.max(0, -(s.day_pnl_usd || 0)))}`, used, `төсөв ${usd(remain)} үлдсэн`],
+    ["Хамгийн муу тохиолдол", usd(Math.max(0, remain - s.total_risk_usd)), null, "бүх SL цохигдсоны дараа үлдэх өдрийн төсөв"],
+  ]);
+  const yes = v => v ? `<span class="pos">✓</span>` : `<span class="neg">✕</span>`;
+  $("#rules").innerHTML = `<tr><th>Дүрэм</th><th class="num">Хязгаар</th><th class="num">Одоо</th><th></th></tr>` + [
+    ["Өдрийн алдагдал", `${s.daily_limit_pct_used ?? a.daily_loss_limit_pct}% · ${usd(s.daily_loss_limit_usd)}`, `${usd(Math.max(0, -(s.day_pnl_usd || 0)))} алдсан`, remain > 0],
+    ["Нийт алдагдал", `${a.max_loss_pct}% · ${usd(s.max_loss_usd)}`, "баланс " + usd(s.balance), true],
+    ["Ашгийн зорилт", `${a.profit_target_pct}% · ${usd(s.profit_target_usd)}`, "—", true],
+    ["Мэдээний үеийн захиалга", "мэдээ ± 2 минут", `${ideas.filter(i => i.news_lock).length} санаа түгжээтэй`, true],
+    ["Дүрэм баталгаажсан эсэх", s.rules_verified === false ? "үгүй (хатуу талаар)" : "тийм", "", s.rules_verified !== false],
+  ].map(([l, lim, now, ok]) => `<tr><td>${l}</td><td class="num">${lim}</td><td class="num">${now}</td><td>${yes(ok)}</td></tr>`).join("");
+  const ex = exposure(ideas), mx = Math.max(1, ...ex.map(x => Math.abs(x[1])));
+  $("#expo").innerHTML = ex.length ? ex.map(([k, v]) => `<div class="sbar" style="grid-template-columns:70px 1fr 70px"><b>${esc(k)}</b><span class="tr"><i style="${v >= 0 ? "left:50%" : "right:50%"};width:${50 * Math.abs(v) / mx}%;background:${css(v >= 0 ? "--buy" : "--sell")}"></i></span><span style="text-align:right">${v >= 0 ? "+" : "−"}${usd(Math.abs(v))}</span></div>`).join("") +
+    `<div class="sub" style="margin-top:6px">Ногоон = худалдан авсан (long), улаан = зарсан (short) тал.</div>` : `<div class="empty">Арилжаалах санаа алга.</div>`;
+  $("#risktable").innerHTML = ideas.length ? `<tr><th>Хэрэгсэл</th><th></th><th class="num">Лот</th><th class="num">SL зай</th><th class="num">Эрсдэл</th><th class="num">Ашиг TP1</th><th class="num">R:R</th><th class="num">Спред/SL</th><th>Тэмдэглэл</th></tr>` +
+    ideas.map(i => { const dist = Math.abs(i.entry - i.stop), vpp = i.value_per_point || 0, p1 = (i.lots || 0) * Math.abs(i.tp1 - i.entry) * vpp;
+      return `<tr style="${i.lots ? "" : "opacity:.55"}"><td><b>${esc(i.symbol)}</b></td><td><span class="tag ${i.side}">${i.side}</span></td><td class="num">${i.lots ? Number(i.lots).toFixed(2) : "0"}</td><td class="num">${fx(dist, dp(i.entry))}</td>
+        <td class="num neg">${i.lots ? "−" + usd(i.risk_usd) + ` (${Number(i.risk_pct).toFixed(2)}%)` : "—"}</td><td class="num pos">${i.lots && vpp ? "+" + usd(p1) : "—"}</td><td class="num">${i.rr}</td>
+        <td class="num ${i.spread_r > 0.15 ? "warnc" : ""}">${i.spread_r == null ? "—" : (100 * i.spread_r).toFixed(1) + "%"}</td><td class="meta">${i.news_lock ? "мэдээний түгжээ" : !i.lots ? "лот 0" : i.evidence === "LOW" ? "нотолгоо сул" : ""}</td></tr>`; }).join("") : `<tr><td class="empty">Санаа алга.</td></tr>`;
+}
+
+// ---------------------------------------------------------------- Баруун багана
+function renderRail() {
+  if (!REP && !LIVE) return;
+  const s = (REP && REP.summary) || {}, A = LIVE && LIVE.account;
+  if (A && A.rules) {                      // MT5-аас шууд: бодит позицуудын эрсдэл ба 5ers-ийн өдрийн хязгаар
+    const lim = A.rules.daily_loss_limit || 0, share = lim ? 100 * (A.open_risk_usd || 0) / lim : 0;
+    $("#rlrisk").innerHTML = `<div class="row"><span class="meta">Өдрийн хязгаар хүртэл</span><b>${usd(A.rules.daily_room)}</b></div>
+      <div class="row"><span class="meta">Нээлттэй эрсдэл (SL хүртэл)</span><span>${usd(A.open_risk_usd)} · ${A.positions} позиц${A.orders ? ` + ${A.orders} захиалга` : ""}</span></div>${meter(share)}
+      <div class="row"><span class="meta">Өдрийн хязгаарын хэрэглээ</span><span class="${share >= 90 ? "neg" : share >= 60 ? "warnc" : ""}">${share.toFixed(0)}%</span></div>
+      <div class="row"><span class="meta">Өнөөдрийн P/L</span><span>${sgn(A.day_pnl, 2)}</span></div>
+      <div class="row"><span class="meta">Equity</span><span>${usd(A.equity)}</span></div>
+      ${(A.no_sl || []).length ? `<div class="neg" style="margin-top:4px">⚠ SL-гүй: ${esc(A.no_sl.join(", "))}</div>` : ""}`;
+  } else if (REP) {
+    const share = (s.share_of_daily_limit || 0) * 100;
+    const remain = s.remaining_daily_usd != null ? s.remaining_daily_usd : s.daily_loss_limit_usd;
+    $("#rlrisk").innerHTML = `<div class="row"><span class="meta">Төсөв үлдсэн</span><b>${usd(remain)}</b></div>
+      <div class="row"><span class="meta">Санаануудын эрсдэл</span><span>${usd(s.total_risk_usd)} · ${Number(s.total_risk_pct).toFixed(2)}%</span></div>${meter(share)}
+      <div class="row"><span class="meta">Хязгаарын хэрэглээ</span><span>${share.toFixed(0)}%</span></div>
+      <div class="sub">Тайлангийн үеийн утга — MT5 холбогдвол бодит позицоор шинэчилнэ.</div>`;
+  }
+  const cal = LIVE && LIVE.calendar_ok ? LIVE.calendar : (REP && REP.market || {}).calendar;
+  const ev = (cal || []).filter(e => e.impact === "High" && new Date(e.time).getTime() > Date.now() - 30 * 60e3).slice(0, 5);
+  $("#rlnews").innerHTML = ev.length ? ev.map(e => { const d = new Date(e.time);
+    return `<div class="row"><span><span class="dot High"></span><b>${esc(e.ccy)}</b> ${esc(e.title)}</span><span class="meta">${d.toLocaleDateString(undefined, {weekday: "short"})} ${d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}</span></div>`; }).join("")
+    : `<div class="meta">${cal ? "Ойрын өндөр нөлөөтэй мэдээ алга." : "Календарийн өгөгдөл алга."}</div>`;
+  const fmtT = v => v ? new Date(v).toLocaleString([], {month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"}) : "—";
+  const liveRows = LIVE ? `<div class="row"><span class="meta">Шинэчилсэн</span><span>${new Date(LIVE.time).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit", second: "2-digit"})}</span></div>
+    <div class="row"><span class="meta">MT5 данс</span><span class="${LIVE.account && !LIVE.account.stale ? "pos" : "warnc"}">${LIVE.account ? (LIVE.account.stale ? "хуучин кэш" : "холбогдсон") : "холбогдоогүй"}</span></div>
+    <div class="row"><span class="meta">Календарь</span><span class="${LIVE.calendar_ok ? "" : "warnc"}" title="${esc(((LIVE.calendar_meta || {}).tried || []).map(t => `${t.name}: ${t.ok ? "OK" : "амжилтгүй"} — ${t.msg}`).join("\n"))}">${LIVE.calendar_ok ? esc((LIVE.calendar_meta || {}).source || "") + " · " + fmtT(LIVE.calendar_updated) : "татаж чадсангүй"}</span></div>` : "";
+  if (!REP) { $("#rlstate").innerHTML = liveRows; return; }
+  $("#rlstate").innerHTML = liveRows + `<div class="row"><span class="meta">Санааны тайлан</span><span>${fmtT(REP.created_utc)}</span></div>
+    <div class="row"><span class="meta">Үнэ</span><span>${esc(s.price_source || "Yahoo Finance")}</span></div>
+    <div class="row"><span class="meta">Шинжилсэн</span><span>${s.analyzed ?? "—"} / ${s.universe ?? "—"}</span></div>
+    <div class="row"><span class="meta">Өгөгдлийн алдаа</span><span class="${(REP.data_errors || []).length ? "warnc" : ""}" title="${esc((REP.data_errors || []).join("\n"))}">${(REP.data_errors || []).length}</span></div>
+    ${(REP.closed_markets || []).length ? `<div class="row"><span class="meta">Хаалттай зах зээл</span><span title="${esc(REP.closed_markets.join("\n"))}">${REP.closed_markets.length} · ${esc(REP.closed_markets.map(x => x.split(":")[0]).join(", "))}</span></div>` : ""}`;
+}
+
+// ---------------------------------------------------------------- График
+let CH = null, CHTF = "h4", CHHOVER = null;
+document.querySelectorAll("#chtf button").forEach(b => b.onclick = () => { CHTF = b.dataset.tf; document.querySelectorAll("#chtf button").forEach(x => x.classList.toggle("on", x === b)); loadChart(); });
+$("#chsym").onchange = () => loadChart();
+async function loadChart() {
+  const sym = $("#chsym").value; if (!sym) return;
+  $("#chinfo").textContent = "Ачаалж байна…";
+  try {
+    const r = await fetch(`/api/chart?symbol=${encodeURIComponent(sym)}&tf=${CHTF}`), d = await r.json();
+    if (!r.ok) { CH = null; $("#chinfo").textContent = d.error || "Алдаа"; drawChart(); return; }
+    CH = d;
+    $("#chinfo").textContent = `${d.source === "mt5" ? "MT5 (брокер)" : "Yahoo"} · RSI ${d.rsi ?? "—"} · ADX ${d.adx ?? "—"} · ATR ${d.atr ?? "—"}`;
+  } catch (e) { CH = null; $("#chinfo").textContent = "Сервертэй холбогдож чадсангүй"; }
+  drawChart();
+}
+function drawChart() {
+  const cv = $("#cv"); if (!cv || $("#view-chart").hidden) return;
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, W = r.width, H = r.height;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+  const ink = css("--ink"), muted = css("--muted"), line = css("--line"), buy = css("--buy"), sell = css("--sell"), acc = css("--accent"), warn = css("--warn");
+  g.font = "11px system-ui, sans-serif";
+  if (!CH || !CH.t.length) { g.fillStyle = muted; g.fillText("График алга.", 12, 24); $("#chlegend").innerHTML = ""; return; }
+  const n = CH.t.length, PR = 70, PB = 22, PT = 8, cw = (W - PR) / n;
+  const idea = REP ? REP.ideas.find(i => i.symbol === CH.symbol) : null;
+  let hi = Math.max(...CH.h), lo = Math.min(...CH.l);
+  if (idea) [idea.entry, idea.stop, idea.tp1].forEach(v => { hi = Math.max(hi, v); lo = Math.min(lo, v); });
+  const padv = (hi - lo) * 0.05 || 1; hi += padv; lo -= padv;
+  const y = v => PT + (hi - v) / (hi - lo) * (H - PT - PB), x = k => k * cw + cw / 2, d = dp(CH.c[n - 1]);
+  g.strokeStyle = line; g.fillStyle = muted; g.lineWidth = 1;
+  for (let k = 0; k <= 5; k++) { const v = lo + (hi - lo) * k / 5, yy = y(v); g.beginPath(); g.moveTo(0, yy); g.lineTo(W - PR, yy); g.stroke(); g.fillText(v.toFixed(d), W - PR + 6, yy + 4); }
+  const step = Math.max(1, Math.round(n / 7));
+  for (let k = step; k < n; k += step) { const t = new Date(CH.t[k] * 1000); g.fillText(CH.tf === "d1" ? t.toLocaleDateString(undefined, {month: "short", day: "numeric"}) : t.toLocaleDateString(undefined, {month: "numeric", day: "numeric"}) + " " + t.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}), x(k) - 26, H - 6); }
+  // D1 дэмжлэг / эсэргүүцэл
+  g.setLineDash([4, 4]); g.strokeStyle = muted;
+  CH.levels.forEach(L => { if (L.level > lo && L.level < hi) { const yy = y(L.level); g.globalAlpha = .55; g.beginPath(); g.moveTo(0, yy); g.lineTo(W - PR, yy); g.stroke(); g.globalAlpha = 1; } });
+  g.setLineDash([]);
+  const path = (arr, col) => { g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); let st = false; arr.forEach((v, k) => { if (v == null) return; if (!st) { g.moveTo(x(k), y(v)); st = true; } else g.lineTo(x(k), y(v)); }); g.stroke(); };
+  path(CH.ema200, warn); path(CH.ema50, acc);
+  const bw = Math.max(1, Math.min(9, cw * 0.66));
+  for (let k = 0; k < n; k++) { const up = CH.c[k] >= CH.o[k], col = up ? buy : sell; g.strokeStyle = col; g.fillStyle = col; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x(k), y(CH.h[k])); g.lineTo(x(k), y(CH.l[k])); g.stroke();
+    const y1 = y(Math.max(CH.o[k], CH.c[k])), y2 = y(Math.min(CH.o[k], CH.c[k])); g.fillRect(x(k) - bw / 2, y1, bw, Math.max(1, y2 - y1)); }
+  if (idea) [["TP2", idea.tp2, buy], ["TP1", idea.tp1, buy], ["Орох", idea.entry, acc], ["SL", idea.stop, sell]].forEach(([l, v, col]) => {
+    if (v < lo || v > hi) return; const yy = y(v); g.strokeStyle = col; g.lineWidth = 1.5; g.beginPath(); g.moveTo(0, yy); g.lineTo(W - PR, yy); g.stroke();
+    g.fillStyle = col; g.fillRect(W - PR, yy - 8, PR, 16); g.fillStyle = css("--panel"); g.fillText(`${l} ${v.toFixed(d)}`, W - PR + 4, yy + 4); });
+  if (CHHOVER != null && CHHOVER >= 0 && CHHOVER < n) { g.strokeStyle = muted; g.lineWidth = 1; g.setLineDash([2, 3]); g.beginPath(); g.moveTo(x(CHHOVER), PT); g.lineTo(x(CHHOVER), H - PB); g.stroke(); g.setLineDash([]); }
+  $("#chlegend").innerHTML = `<span><i style="background:${acc}"></i>EMA 50</span><span><i style="background:${warn}"></i>EMA 200</span><span><i style="background:${muted}"></i>D1 дэмжлэг/эсэргүүцэл (тасархай)</span>` +
+    (idea ? `<span><i style="background:${buy}"></i>TP</span><span><i style="background:${sell}"></i>SL</span><span>Санаа: <b>${idea.side}</b> ${esc(idea.order_type)} · оноо ${Math.round(idea.score)} ${idea.grade}</span>` : `<span>Энэ хэрэгслээр одоогоор санаа алга (WAIT)</span>`);
+}
+$("#cv").addEventListener("mousemove", e => { if (!CH) return; const r = $("#cv").getBoundingClientRect(), n = CH.t.length, k = Math.floor((e.clientX - r.left) / ((r.width - 70) / n));
+  if (k === CHHOVER || k < 0 || k >= n) return; CHHOVER = k; const d = dp(CH.c[k]), t = new Date(CH.t[k] * 1000);
+  $("#chread").textContent = `${t.toLocaleString([], {year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit"})} · O ${CH.o[k].toFixed(d)} · H ${CH.h[k].toFixed(d)} · L ${CH.l[k].toFixed(d)} · C ${CH.c[k].toFixed(d)}`; drawChart(); });
+$("#cv").addEventListener("mouseleave", () => { CHHOVER = null; drawChart(); });
+window.addEventListener("resize", drawChart);
+
+// ---------------------------------------------------------------- Тайлан, ажил
+// «ideas_20261123_0338.json» → «11-23 11:38 (таны цагаар)»
+function repTime(n) {
+  const m = /(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/.exec(n || "");
+  return m ? new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5])) : null;
+}
+const fmtDT = d => d ? `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : "—";
+const ago = d => { const m = Math.round((Date.now() - d.getTime()) / 60000); return m < 1 ? "дөнгөж сая" : m < 60 ? `${m} мин өмнө` : m < 1440 ? `${Math.round(m / 60)} цагийн өмнө` : `${Math.round(m / 1440)} өдрийн өмнө`; };
+function repOption(n, k) {
+  const d = repTime(n), kind = n.startsWith("ideas_") ? "Санаа" : n.replace(/_.*$/, "");
+  return `<option value="${n}">${k === 0 ? "Сүүлийн: " : ""}${kind} ${d ? fmtDT(d) : n.replace(".json", "")}</option>`;
+}
+let LIVE = null, LIVET = null, LIVEBUSY = false;
+function applyLive() {                    // шууд татсан календарийг тайлангийн хуучин календарийн оронд харуулна
+  if (!LIVE) return;
+  renderKpis();
+  if (REP) renderRisk();
+  if (REP && LIVE.calendar_ok) {
+    REP.market = REP.market || {};
+    REP.market.calendar = LIVE.calendar; REP.market.calendar_ok = true;
+    renderCalendar();
+  }
+  const m = LIVE.calendar_meta || {};
+  $("#calsrc").innerHTML = LIVE.calendar_ok
+    ? `Эх сурвалж: <b>${esc(m.source || "")}</b> · ${new Date(LIVE.calendar_updated || LIVE.time).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}-д шинэчилсэн`
+      + ((m.tried || []).filter(t => !t.ok).length ? ` · <span class="warnc">${esc(m.tried.filter(t => !t.ok).map(t => t.name + ": " + t.msg).join("; "))}</span>` : "")
+    : `<span class="warnc">Календарь татаж чадсангүй: ${esc(LIVE.calendar_error || "")}</span>`;
+  renderRail();
+}
+async function refreshLive(force) {
+  if (LIVEBUSY) return;
+  LIVEBUSY = true;
+  clearTimeout(LIVET);
+  const b = $("#livebtn");
+  if (force) { b.disabled = true; b.textContent = "Шинэчилж байна…"; }
+  try {
+    LIVE = await getJ("/api/live" + (force ? "?force=1" : ""));
+    applyLive();
+    if (force) {
+      if (VIEW === "account") loadAccount();
+      const names = await getJ("/api/reports"), newest = names.find(n => n.startsWith("ideas_"));
+      if (newest && REP && REP._file !== newest) {              // өөр газар шинэ тайлан гарсан бол түүнийг ачаална
+        $("#rep").innerHTML = names.map(repOption).join("");
+        $("#rep").value = newest; await loadReport(newest);
+      }
+    }
+    $("#livemeta").textContent = (LIVE.account_error ? "MT5: " + LIVE.account_error + " · " : "")
+      + (LIVE.calendar_error ? "Календарь: " + LIVE.calendar_error : "") || "MT5 данс ба мэдээний календарь шинэчлэгдсэн. Санаа, зах зээлийн тоймыг «Шинэ санаа гаргах» шинэчилнэ.";
+  } catch (e) {
+    $("#livemeta").textContent = "Шинэчилж чадсангүй: " + e.message;
+  } finally {
+    LIVEBUSY = false;
+    b.disabled = false; b.textContent = "⟳ Мэдээлэл шинэчлэх";
+    LIVET = setTimeout(() => refreshLive(false), 60000);
+  }
+}
+$("#livebtn").onclick = () => refreshLive(true);
+async function loadList() {
+  const names = await getJ("/api/reports");
+  $("#rep").innerHTML = names.map(repOption).join("");
+  const pick = names.find(n => n.startsWith("ideas_")) || names[0];
+  if (pick) { $("#rep").value = pick; await loadReport(pick); }
+  else { $("#sub").textContent = "Тайлан алга — «Шинэ санаа гаргах» дарна уу."; }
+  refreshLive(true);                 // самбарыг нээхэд MT5 данс ба календарь шууд шинэчлэгдэнэ
+}
+async function loadReport(name) {
+  const r = await fetch("/api/report?file=" + encodeURIComponent(name));
+  if (r.ok) render(await r.json());
+}
+$("#rep").onchange = e => loadReport(e.target.value).then(() => { if (VIEW === "risk") runCalc(); });
+
+function busy(on, label) {
+  $("#run").disabled = $("#rvbtn").disabled = on;
+  $("#run").textContent = on && label === "ideas" ? "Шинжилж байна…" : "Шинэ санаа гаргах";
+  $("#rvbtn").textContent = on && label === "review" ? "Шалгаж байна…" : "Review ажиллуулах";
+}
+let isPolling = false;
+async function poll(kind) {
+  if (isPolling) return;
+  isPolling = true;
+  busy(true, kind);
+  try {
+    for (;;) {
+      await new Promise(r => setTimeout(r, 1500));
+      const st = await getJ("/api/status");
+      if (st.log) { const el = $("#log"); el.textContent = st.log; el.scrollTop = el.scrollHeight; }
+      if (st.running) continue;
+      busy(false);
+      if (kind === "ideas") {
+        if (st.code === 0) await loadList();
+        else alert("Бот алдаатай дууслаа — «Лог» дэлгэцийг харна уу.");
+      } else renderReview(st.result || []);
+      return;
+    }
+  } finally { isPolling = false; busy(false); if (MODE.public) { MODE = await getJ("/api/mode"); cooldownTick(); } }
+}
+function cooldownTick() {
+  if (!MODE.public || isPolling) return;
+  const left = MODE.next_run_at ? new Date(MODE.next_run_at).getTime() - Date.now() : 0, b = $("#run");
+  b.disabled = left > 0;
+  b.textContent = left > 0 ? `Шинэ санаа ${Math.ceil(left / 60000)} минутын дараа` : "Шинэ санаа гаргах";
+}
+$("#run").onclick = async () => {
+  if (isPolling) return;
+  const r = await fetch("/api/run", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({balance: MODE.public ? null : ($("#bal").value || null)})});
+  if (r.status === 429) { const j = await r.json(); alert(j.error || "Түр хүлээнэ үү."); MODE = await getJ("/api/mode"); cooldownTick(); return; }
+  if (r.status === 409) { alert("Өөр шинжилгээ явж байна — дуусахыг хүлээнэ үү."); poll("ideas"); return; }
+  $("#log").textContent = "Эхэлж байна…";
+  poll("ideas");
+};
+$("#rvbtn").onclick = async () => { if (isPolling) return; const r = await fetch("/api/review", {method: "POST"}); if (r.status === 409) { alert("Өөр ажил явж байна."); return; } poll("review"); };
+
+function renderReview(rows) {
+  if (!rows.length) { $("#review").innerHTML = `<div class="empty">Үнэлэх бодит санаа алга.</div>`; return; }
+  const closed = rows.filter(r => r.status === "WIN" || r.status === "LOSS");
+  const wins = closed.filter(r => r.status === "WIN").length, tot = closed.reduce((a, r) => a + r.r, 0);
+  const head = closed.length ? `<div class="kpis"><div class="kpi"><div class="l">Хаагдсан</div><div class="v">${closed.length}</div></div>
+    <div class="kpi"><div class="l">Хожлын хувь</div><div class="v">${(100 * wins / closed.length).toFixed(0)}%</div></div>
+    <div class="kpi"><div class="l">Нийт R</div><div class="v ${tot >= 0 ? "pos" : "neg"}">${tot >= 0 ? "+" : ""}${tot.toFixed(2)}R</div></div></div>` : "";
+  $("#review").innerHTML = head + `<div class="scroll"><table class="rv"><tr><th>Тайлан</th><th>Хэрэгсэл</th><th>Тал</th><th>Үнэлгээ</th><th>Төлөв</th><th>R</th></tr>` +
+    rows.map(r => `<tr><td>${esc(r.file.replace(".json", ""))}</td><td>${esc(r.symbol)}</td><td>${r.side ? `<span class="tag ${r.side}">${r.side}</span>` : ""}</td>
+      <td>${esc(r.grade || "")}</td><td>${esc(STATUS[r.status] || r.status)}</td><td class="${r.r > 0 ? "pos" : r.r < 0 ? "neg" : ""}">${Number(r.r).toFixed(2)}</td></tr>`).join("") + `</table></div>`;
+}
+
+// ---------------------------------------------------------------- Тооцоолуур
+const CF = {balance: "c_balance", total_risk_pct: "c_total", risk_per_trade_pct: "c_per", min_tp_pips: "c_tp", min_rr: "c_rr", tp_mode: "c_mode"};
+try { const sv = JSON.parse(localStorage.getItem("calc") || "{}"); for (const k in CF) if (sv[k] != null && sv[k] !== "") $("#" + CF[k]).value = sv[k]; } catch (e) {}
+const money = v => (v < 0 ? "−$" : "$") + Math.abs(Number(v || 0)).toLocaleString("en-US", {maximumFractionDigits: 0});
+const dlt = (a, b, f, good) => { const d = a - b; if (Math.abs(d) < 1e-9) return ""; const up = d > 0; return `<span class="delta ${up === (good !== "down") ? "pos" : "neg"}">${up ? "▲" : "▼"}${f(Math.abs(d))}</span>`; };
+async function runCalc() {
+  if (MODE.static) return;
+  const file = $("#rep").value; if (!file) return;
+  const body = {file}; for (const k in CF) body[k] = $("#" + CF[k]).value || null;
+  try { localStorage.setItem("calc", JSON.stringify(body)); } catch (e) {}
+  const r = await fetch("/api/scenario", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if (!r.ok) { $("#calcwarn").innerHTML = `<div class="banner">${esc(d.error || "Алдаа")}</div>`; return; }
+  const B = d.totals.base, N = d.totals.new, st = d.settings;
+  $("#calcwarn").innerHTML = d.warnings.map(w => `<div class="banner" style="margin-bottom:10px">${esc(w)}</div>`).join("");
+  const pct = v => v.toFixed(2) + "%";
+  $("#calctot").innerHTML = [
+    ["Нийт эрсдэл (бүх SL)", money(N.risk_usd) + " · " + pct(N.risk_pct), "анх: " + money(B.risk_usd) + " · " + pct(B.risk_pct), Math.min(100, 100 * (N.share_of_daily_limit || 0))],
+    ["Нийт ашиг (бүх TP1)", money(N.profit_tp1), "анх: " + money(B.profit_tp1)],
+    ["Нийт ашиг (бүх TP2)", money(N.profit_tp2), "анх: " + money(B.profit_tp2)],
+    ["Арилжаалах санаа", N.ideas + " / " + d.rows.length, "анх: " + B.ideas],
+    ["Дундаж эрэмбийн оноо", N.avg_score.toFixed(1), "анх: " + B.avg_score.toFixed(1)],
+    ["Хүлээгдэх дүн (ойролцоо)", N.expected_usd == null ? "—" : money(N.expected_usd), B.expected_usd == null ? "" : "анх: " + money(B.expected_usd)],
+  ].map(([l, v, c, m]) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="cmp">${c}</div>${m != null ? meter(m) : ""}</div>`).join("");
+  const head = `<tr><th>Хэрэгсэл</th><th></th><th>Лот</th><th>SL зай</th><th>TP1 зай</th><th>R:R</th><th>1 pip-ийн үнэ</th><th>Алдагдал (SL)</th><th>Ашиг (TP1)</th><th>Ашиг (TP2)</th><th>Оноо</th><th>Магадлал*</th></tr>`;
+  const dist = (pips, raw, e) => pips != null ? pips.toFixed(0) + " pip" : Number(raw).toFixed(dp(e)) + " пойнт";
+  $("#calctable").innerHTML = head + d.rows.map(x => {
+    const b = x.base, n = x.new, e = x.entry;
+    const row = (lab, o, cls) => `<tr class="${cls}"><td>${lab}</td><td>${o === n ? "Шинэ" : "Анх"}</td><td>${o.lots == null ? "—" : Number(o.lots).toFixed(2)}</td>
+      <td>${dist(x.sl_pips, x.sl_dist, e)}</td><td>${dist(o.tp1_pips, Math.abs(o.tp1 - e), e)}</td><td>${Number(o.rr).toFixed(2)}</td>
+      <td>${o.pip_value == null ? "—" : "$" + Number(o.pip_value).toFixed(2)}</td><td class="neg">${money(-(o.risk_usd || 0))}</td>
+      <td class="pos">${money(o.profit_tp1 || 0)}</td><td class="pos">${money(o.profit_tp2 || 0)}</td>
+      <td>${Number(o.score).toFixed(0)} ${o.grade}${o === n ? dlt(n.score, b.score, v => v.toFixed(0)) : ""}</td><td>${o.prob == null ? "—" : Math.round(100 * o.prob) + "%"}</td></tr>`;
+    const lab = `<b>${esc(x.symbol)}</b> <span class="tag ${x.side}">${x.side}</span>`;
+    const notes = x.notes.length ? `<tr class="sub2"><td colspan="12" style="text-align:left;white-space:normal">! ${x.notes.map(esc).join(" · ")}</td></tr>` : "";
+    return row(lab, n, "main" + (x.excluded || !n.lots ? " off" : "")) + row("", b, "sub2") + notes;
+  }).join("");
+  $("#calcnote").innerHTML = `* ${esc(d.prob_note)} Хүлээгдэх дүн = Σ(магадлал × ашиг − (1 − магадлал) × алдагдал). Pip-ийн тохиргоо зөвхөн форекст үйлчилнэ; бусад хэрэгслийн зай үнийн пойнтоор.` +
+    (d.scaled ? " Нийт эрсдэлийг хязгаарт багтаахын тулд санаа бүрийн эрсдэлийг тэнцүү хувиар бууруулсан." : "") +
+    ` Тохиргоо: баланс ${money(st.balance)}, нийт эрсдэл ${st.total_risk_pct}%, TP ≥ ${st.min_tp_pips} pip, R:R ≥ ${st.min_rr}.`;
+}
+$("#calcform").onsubmit = e => { e.preventDefault(); runCalc(); };
+$("#calcform").onchange = () => runCalc();
+$("#c_reset").onclick = () => { for (const k in CF) $("#" + CF[k]).value = k === "tp_mode" ? "extend" : ""; runCalc(); };
+
+// ---------------------------------------------------------------- Журнал
+window.journalAdd = async (n, btn) => {
+  const i = IDEAS[n], num = id => Number(document.getElementById(id + "_" + n).textContent);
+  const tp = document.getElementById("tp_" + n).textContent.split("/")[0].trim();
+  const entry = {symbol: i.symbol, side: i.side, order_type: i.order_type, setup: i.setup, entry: num("e"), stop: num("sl"), tp1: Number(tp),
+    lots: i.lots, risk_usd: i.risk_usd, score: i.score, grade: i.grade, source_report: $("#rep").value, status: "open"};
+  const r = await fetch("/api/journal", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({action: "add", entry})});
+  btn.textContent = r.ok ? "Нэмэгдлээ ✓" : "Алдаа";
+  setTimeout(() => btn.textContent = "Журналд нэмэх", 1500);
+};
+const JST = {open: "Нээлттэй", win: "Хожсон", loss: "Алдсан", be: "Тэнцсэн (BE)", cancelled: "Цуцалсан"};
+async function jpost(body) {
+  const r = await fetch("/api/journal", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const d = await r.json();
+  if (!r.ok) { alert(d.error || "Алдаа"); return; }
+  renderJournal(d);
+}
+window.jset = (id, field, value) => jpost({action: "update", id, entry: {[field]: value}});
+window.jdel = id => { if (confirm("Энэ бичлэгийг устгах уу?")) jpost({action: "delete", id}); };
+async function loadJournal() { renderJournal(await getJ("/api/journal")); }
+function renderJournal(d) {
+  const s = d.stats, sg = v => (v >= 0 ? "+" : "−") + usd(Math.abs(v));
+  $("#jwarn").innerHTML = (s.warnings || []).map(w => `<div class="banner" style="margin-bottom:10px">${esc(w)}</div>`).join("");
+  $("#jstats").innerHTML = [
+    ["Нийт / нээлттэй", `${s.total} / ${s.open}`],
+    ["Хаагдсан · хожил", s.closed ? `${s.closed} · ${Math.round(100 * s.win_rate)}%` : "—"],
+    ["Нийт P/L", sg(s.total_pnl_usd), s.total_pnl_usd >= 0 ? "pos" : "neg"],
+    ["Нийт R", s.total_r == null ? "—" : (s.total_r >= 0 ? "+" : "") + s.total_r.toFixed(2) + "R"],
+    ["Өнөөдрийн P/L", sg(s.day_pnl_usd), s.day_pnl_usd >= 0 ? "pos" : "neg"],
+    ["Өдрийн төсөв үлдсэн", s.remaining_daily_usd == null ? "—" : usd(s.remaining_daily_usd)],
+    ["Дараалсан алдагдал", String(s.loss_streak)],
+  ].map(([l, v, c]) => `<div class="kpi"><div class="l">${l}</div><div class="v ${c || ""}">${v}</div></div>`).join("");
+  if (!d.entries.length) { $("#jtable").innerHTML = `<tr><td class="empty">Журнал хоосон. Санааны карт дээрх «Журналд нэмэх» товчоор арилжаагаа бүртгэнэ үү.</td></tr>`; return; }
+  $("#jtable").innerHTML = `<tr><th>Огноо</th><th>Хэрэгсэл</th><th>Лот</th><th>Орох</th><th>SL</th><th>TP1</th><th>Эрсдэл</th><th>Төлөв</th><th>P/L ($)</th><th>Тэмдэглэл</th><th></th></tr>` +
+    d.entries.map(e => `<tr><td>${esc((e.created_utc || "").slice(0, 16).replace("T", " "))}</td>
+      <td><b>${esc(e.symbol)}</b> <span class="tag ${esc(e.side)}">${esc(e.side)}</span></td><td>${e.lots == null ? "—" : Number(e.lots).toFixed(2)}</td>
+      <td>${e.entry ?? "—"}</td><td>${e.stop ?? "—"}</td><td>${e.tp1 ?? "—"}</td><td>${e.risk_usd == null ? "—" : usd(e.risk_usd)}</td>
+      <td><select onchange="jset('${e.id}','status',this.value)">${Object.entries(JST).map(([k, v]) => `<option value="${k}"${k === e.status ? " selected" : ""}>${v}</option>`).join("")}</select></td>
+      <td><input type="number" step="any" value="${e.pnl_usd ?? ""}" placeholder="0" onchange="jset('${e.id}','pnl_usd',this.value === '' ? 0 : this.value)"></td>
+      <td><input class="note" type="text" maxlength="300" value="${esc(e.note || "")}" placeholder="яагаад, сэтгэл зүй…" onchange="jset('${e.id}','note',this.value || ' ')"></td>
+      <td><button type="button" onclick="jdel('${e.id}')" title="Устгах">✕</button></td></tr>`).join("");
+}
+
+// ---------------------------------------------------------------- Гүйцэтгэл
+const pc = v => v == null ? "—" : (100 * v).toFixed(1) + "%";
+const ci = c => c ? `<span class="meta">${(100 * c[0]).toFixed(0)}–${(100 * c[1]).toFixed(0)}%</span>` : "";
+async function loadPerf() {
+  const d = await getJ("/api/performance"), c = d.calibration, r = d.research;
+  if (!c) { $("#pfkpis").innerHTML = ""; $("#pfnote").innerHTML = `<div class="banner">Түүхэн тест хийгдээгүй байна: python -m fivers_bot backtest</div>`; return; }
+  const br = c.brier || {};
+  $("#pfkpis").innerHTML = kpiHtml([
+    ["TP1-д хүрсэн", pc(c.base_win_rate), null, `алдагдалгүй байх босго ${pc(c.breakeven_win_rate)}`],
+    ["Дундаж өгөөж (зардлын дараа)", `<span class="${c.avg_r >= 0 ? "pos" : "neg"}">${c.avg_r >= 0 ? "+" : ""}${Number(c.avg_r).toFixed(3)}R</span>`, null, `зардал ${c.cost_r}R`],
+    ["Шийдэгдсэн санаа", Number(c.resolved).toLocaleString("en-US"), null, `${c.period[0]} … ${c.period[1]}`],
+    ["Brier skill (оноо)", br.skill_score_bins == null ? "—" : Number(br.skill_score_bins).toFixed(4), null, "> 0 бол оноо мэдээлэл өгдөг"],
+    ["Тогтвортой давуу тал", r ? `${r.robust_on_test} / ${r.hypotheses_tested}` : "—", null, "шалгалтын өгөгдөлд батлагдсан таамаглал"],
+  ]);
+  $("#pfnote").innerHTML = `<div class="banner" style="margin:0 0 12px">${c.avg_r < 0 || (br.skill_score_bins ?? 0) <= 0 ? "Стратеги зардлын дараа эерэг хүлээгдэх утгатай нь батлагдаагүй, оноо үр дүнг таамаглахгүй байна. Эдгээр тоо бол түүхэн хэмжилт, ирээдүйн баталгаа биш." : "Түүхэн хэмжилт эерэг гарсан ч ирээдүйн баталгаа биш."} Сүүлд тооцсон: ${esc((c.created || "").slice(0, 16).replace("T", " "))} UTC.</div>`;
+  $("#pfbins").innerHTML = `<tr><th>Оноо</th><th class="num">Санаа</th><th class="num">TP1 %</th><th class="num">95% интервал</th><th class="num">Сургалт</th><th class="num">Шалгалт</th><th class="num">Дундаж R</th></tr>` +
+    c.bins.map(b => `<tr><td>${b.from}–${b.to >= 200 ? "100" : b.to}</td><td class="num">${b.n}</td><td class="num">${pc(b.win_rate)}</td><td class="num">${ci(b.ci95)}</td><td class="num">${pc(b.win_rate_train)}</td><td class="num">${pc(b.win_rate_test)}</td><td class="num">${sgn(b.avg_r, 3, "R")}</td></tr>`).join("");
+  const grp = (title, o, map) => `<tr><th colspan="5">${title}</th></tr>` + Object.entries(o || {}).sort((a, b) => b[1].avg_r - a[1].avg_r).map(([k, v]) =>
+    `<tr><td>${esc((map && map[k]) || k)}</td><td class="num">${v.n}</td><td class="num">${pc(v.win_rate)}</td><td class="num">${ci(v.ci95)}</td><td class="num">${sgn(v.avg_r, 3, "R")}</td></tr>`).join("");
+  $("#pfkind").innerHTML = `<tr><th></th><th class="num">Санаа</th><th class="num">TP1 %</th><th class="num">95% интервал</th><th class="num">Дундаж R</th></tr>` + grp("Төрөл", c.by_kind, KIND) + grp("Сетап", c.by_setup, SETUP) + grp("Захиалга", c.by_order);
+  const sy = Object.entries(c.by_symbol || {}).sort((a, b) => b[1].avg_r - a[1].avg_r), pick = sy.length > 14 ? [...sy.slice(0, 7), null, ...sy.slice(-7)] : sy;
+  $("#pfsym").innerHTML = `<tr><th>Хэрэгсэл</th><th class="num">Санаа</th><th class="num">TP1 %</th><th class="num">95% интервал</th><th class="num">Дундаж R</th></tr>` +
+    pick.map(x => x ? `<tr><td><b>${esc(x[0])}</b></td><td class="num">${x[1].n}</td><td class="num">${pc(x[1].win_rate)}</td><td class="num">${ci(x[1].ci95)}</td><td class="num">${sgn(x[1].avg_r, 3, "R")}</td></tr>` : `<tr><td colspan="5" class="meta" style="text-align:center">…</td></tr>`).join("");
+  if (r) { const tc = r.target_curve || {};
+    $("#pfres").innerHTML = [["Шалгасан таамаглал", r.hypotheses_tested], ["Сургалтад тэнцсэн", r.passed_train], ["Баталгаажуулалтад тэнцсэн", r.passed_valid],
+      [`Шалгалтад тогтвортой (>${r.z_required || 2} SE, олон таамаглалын засвартай)`, `<b class="${r.robust_on_test ? "pos" : "neg"}">${r.robust_on_test}</b>`], ["Судалгааны мөр", Number(r.rows).toLocaleString("en-US")],
+      ["Хугацаа", (r.period || []).join(" … ")], ["Сүүлд тооцсон", esc((r.created || "").slice(0, 16).replace("T", " ")) + " UTC"]]
+      .map(([l, v]) => `<div class="row"><span class="meta">${l}</span><span>${v}</span></div>`).join("") +
+      `<div class="sub" style="margin-top:6px">Олон таамаглал шалгахад зарим нь санамсаргүйгээр сайн харагддаг. Тиймээс зөвхөн огт хараагүй шалгалтын хэсэгт батлагдсаныг л давуу тал гэж үзнэ.</div>`;
+  } else $("#pfres").innerHTML = `<div class="meta">Судалгаа хийгдээгүй: python -m fivers_bot research</div>`;
+}
+
+// ---------------------------------------------------------------- Банк, шинжээч
+let VW = [], VWF = "all";
+async function loadViews() {
+  VW = await getJ("/api/views"); renderViews();
+  try {
+    const d = await getJ("/api/directory"), kn = {bank: "Банк", analyst: "Шинжээч", central_bank: "Төв банк"};
+    $("#rsdir").innerHTML = d.map(x => `<div style="padding:6px 0;border-bottom:1px dashed var(--line)"><a href="${safeUrl(x.url)}" target="_blank" rel="noopener noreferrer"><b>${esc(x.name)}</b></a> <span class="meta">${esc(kn[x.kind] || x.kind || "")} · ${esc(x.cadence || "")}</span><div class="sub">${esc(x.note || "")}</div></div>`).join("") || '<div class="empty">Лавлах хоосон.</div>';
+  } catch (e) { $("#rsdir").textContent = "Лавлах ачаалж чадсангүй."; }
+}
+window.vwSet = v => { VWF = v; renderViews(); };
+function renderViews() {
+  const ins = ["all", ...new Set(VW.map(v => v.instrument))].slice(0, 30);
+  $("#rsfilter").innerHTML = ins.map(k => `<button class="chip${VWF === k ? " on" : ""}" onclick="vwSet('${esc(k)}')">${k === "all" ? "Бүгд" : esc(k)}</button>`).join("");
+  const rows = VW.filter(v => VWF === "all" || v.instrument === VWF);
+  const link = u => /^https?:\/\//i.test(u || "") ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">эх сурвалж</a>` : "";
+  $("#rstable").innerHTML = rows.length ? `<tr><th>Огноо</th><th>Эх сурвалж</th><th>Зэрэг</th><th>Хэрэгсэл</th><th class="num">Зорилт / чиг</th><th>Хугацаа</th><th>Төлөв</th><th>Тэмдэглэл</th></tr>` +
+    rows.map(v => `<tr><td style="white-space:nowrap">${esc(v.published || "")}</td><td><b>${esc(v.source || "")}</b></td><td>${esc(v.tier || "—")}</td><td>${esc(v.instrument || "")}</td>
+      <td class="num">${v.target != null ? esc(v.target) : esc(v.direction || v.bias || "—")}</td><td style="white-space:nowrap">${esc(v.horizon || "")}</td>
+      <td>${v.verified ? `<span class="pos">баталгаажсан</span>` : `<span class="warnc">баталгаажаагүй</span>`}</td><td class="meta" style="min-width:260px">${esc(v.note || "")} ${link(v.url)}</td></tr>`).join("")
+    : `<tr><td class="empty">Дүгнэлт алга.</td></tr>`;
+}
+
+// ---------------------------------------------------------------- Эх сурвалж
+function hdChip(hd) {
+  if (!hd || (!hd.hawk && !hd.dove)) return `<span class="meta">—</span>`;
+  const c = hd.score > 0.05 ? "neg" : hd.score < -0.05 ? "pos" : "meta";
+  return `<span class="${c}" title="hawkish хэллэг ${hd.hawk}, dovish ${hd.dove}: ${esc((hd.terms || []).join(", "))}">${hd.score > 0 ? "+" : ""}${Number(hd.score).toFixed(2)} ${hd.score > 0.05 ? "hawkish" : hd.score < -0.05 ? "dovish" : "төв"}</span>`;
+}
+const safeUrl = u => /^https?:\/\//i.test(u || "") ? esc(u) : "#";
+function cxRows(c) {
+  if (!c) return [];
+  const r = [], s = (v, d) => `${v > 0 ? "+" : ""}${Number(v).toFixed(d)}`;
+  if (c.gvz != null) r.push(["Алтны опцион (GVZ)", `${c.gvz.toFixed(1)}${c.gvz_chg != null ? ` (20 хоногт ${s(c.gvz_chg, 1)})` : ""}${c.gvz > 20 ? ' · <span class="neg">өндөр</span>' : c.gvz < 15 ? " · бага" : ""}`]);
+  if (c.ry10 != null) r.push(["АНУ бодит хүү (TIPS 10Y)", `${c.ry10.toFixed(2)}%${c.ry10_chg != null ? ` · 20 хоногт ${s(c.ry10_chg, 0)}bp` : ""}`]);
+  if (c.eq_mom != null) r.push(["Хувьцааны зах (SP500/NAS/DAX/N225)", `20 хоногт ${s(c.eq_mom, 1)}%${c.eq_dd != null ? ` · оргилоос ${c.eq_dd.toFixed(1)}%` : ""}`]);
+  if (c.y2_d1 != null) r.push(["Мэдээний цочрол (2Y, 1 өдөр)", `${s(c.y2_d1, 0)}bp`]);
+  return r;
+}
+function usRows(u) {
+  if (!u) return [];
+  const r = [];
+  if (u.y2 != null) r.push(["АНУ 2Y / 10Y өгөөж", `${u.y2.toFixed(2)}% / ${u.y10 != null ? u.y10.toFixed(2) + "%" : "—"}${u.y2_chg != null ? ` · 2Y 20 хоногт ${u.y2_chg > 0 ? "+" : ""}${u.y2_chg.toFixed(0)}bp` : ""}`]);
+  if (u.curve != null) r.push(["2s10s муруй", `${u.curve > 0 ? "+" : ""}${(100 * u.curve).toFixed(0)}bp${u.curve_chg != null ? ` (20 хоногт ${u.curve_chg > 0 ? "+" : ""}${u.curve_chg.toFixed(0)}bp)` : ""}`]);
+  if (u.vix != null) r.push(["VIX", `${u.vix.toFixed(1)}${u.vix_chg != null ? ` (20 хоногт ${u.vix_chg > 0 ? "+" : ""}${u.vix_chg.toFixed(1)})` : ""}${u.vix > 25 ? ' · <span class="neg">өндөр</span>' : u.vix < 15 ? " · бага" : ""}`]);
+  if (u.dxy_mom != null) r.push(["Долларын индекс (20 хоног)", sgn(u.dxy_mom, 2, "%")]);
+  return r;
+}
+async function loadCbank() {
+  const us = usRows(REP && REP.us_macro).concat(cxRows(REP && REP.cross_asset));
+  $("#cbus").innerHTML = us.length ? us.map(([l, v]) => `<div class="row"><span class="meta">${l}</span><span>${v}</span></div>`).join("")
+    + `<div class="sub" style="margin-top:6px">Эх сурвалж: АНУ-ын Сангийн яам (нэрлэсэн ба бодит өгөөж), CBOE (VIX, GVZ — алтны опцион), MT5 (долларын индекс, хувьцааны индексүүд). Сүүлийн «Шинэ санаа гаргах»-ын үеийн утга.</div>`
+    : `<div class="empty">«Шинэ санаа гаргах»-ыг ажиллуулсны дараа харагдана.</div>`;
+  let d;
+  try { d = await getJ("/api/cbank"); } catch (e) { $("#cbfomc").textContent = "Татаж чадсангүй: " + e.message; return; }
+  const fo = d.fomc;
+  $("#cbfomc").innerHTML = fo ? `<div class="sub">${esc((fo.previous.time || "").slice(0, 10))} → <a href="${safeUrl(fo.current.link)}" target="_blank" rel="noopener noreferrer">${esc((fo.current.time || "").slice(0, 10))}</a> · hawk-dove ${hdChip(fo.previous.hd)} → ${hdChip(fo.current.hd)} · ижил ${Math.round(100 * fo.same_ratio)}%</div>
+      <div style="margin-top:8px">${fo.removed.map(t => `<div class="neg" style="margin:4px 0">− ${esc(t)}</div>`).join("")}${fo.added.map(t => `<div class="pos" style="margin:4px 0">+ ${esc(t)}</div>`).join("") || '<div class="sub">Өөрчлөлт алга.</div>'}</div>`
+    : "FOMC мэдэгдэл татаж чадсангүй.";
+  const f = d.feeds || {items: [], news: []};
+  $("#cbitems").innerHTML = (f.items || []).slice(0, 30).map(it => `<div class="row" style="display:flex;gap:8px;justify-content:space-between;padding:5px 0;border-bottom:1px dashed var(--line)">
+      <span><b>${esc(it.bank)}</b> <span class="meta">${esc(it.kind)} · ${esc((it.time || "").slice(0, 10))}</span><br><a href="${safeUrl(it.link)}" target="_blank" rel="noopener noreferrer">${esc(it.title)}</a></span><span style="white-space:nowrap">${hdChip(it.hd)}</span></div>`).join("")
+    || `<div class="empty">Мэдээ алга.</div>`;
+  $("#cbnews").innerHTML = (f.news || []).slice(0, 30).map(n => `<div style="padding:5px 0;border-bottom:1px dashed var(--line)"><span class="meta">${esc((n.time || "").slice(11, 16))} UTC ${(n.ccys || []).map(c => `<span class="chip">${esc(c)}</span>`).join(" ")}</span><br><a href="${safeUrl(n.link)}" target="_blank" rel="noopener noreferrer">${esc(n.title)}</a></div>`).join("")
+    + `<div class="sub" style="margin-top:6px">Эх сурвалж: ${esc(f.news_source || "")} RSS — зөвхөн гарчиг ба холбоос.${(f.errors || []).length ? " Алдаа: " + esc(f.errors.join("; ")) : ""}</div>`;
+}
+async function loadSources() {
+  $("#srctable").innerHTML = `<tr><td class="empty">Шалгаж байна…</td></tr>`;
+  const d = await getJ("/api/sources");
+  const ago = t => { if (!t) return "—"; const h = (Date.now() - new Date(t).getTime()) / 3600e3; return h < 1 ? Math.round(h * 60) + " минутын өмнө" : h < 48 ? Math.round(h) + " цагийн өмнө" : Math.round(h / 24) + " өдрийн өмнө"; };
+  $("#srctable").innerHTML = `<tr><th></th><th>Эх сурвалж</th><th>Зориулалт</th><th>Төлөв</th><th>Шинэчлэгдсэн</th></tr>` +
+    d.map(s => `<tr><td>${s.ok ? `<span class="pos">●</span>` : `<span class="neg">●</span>`}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.use)}</td><td class="meta">${esc(s.detail)}</td><td style="white-space:nowrap">${ago(s.updated)}</td></tr>`).join("");
+}
+
+// ---------------------------------------------------------------- Тохиргоо
+const SETF = [["account.balance", "Баланс ($)", "number", 100], ["account.prev_day_balance", "Өмнөх өдрийн хаалтын баланс ($)", "number", 100, "хоосон = одоогийн баланс"],
+  ["account.prev_day_equity", "Өмнөх өдрийн хаалтын equity ($)", "number", 100, "хоосон = одоогийн баланс"], ["risk.max_total_open_risk_pct", "Нийт нээлттэй эрсдэлийн дээд хязгаар (%)", "number", 0.1],
+  ["risk.max_share_of_daily_limit", "Өдрийн хязгаараас ашиглах хувь (0–1)", "number", 0.05], ["risk.risk_pct_by_grade.A", "A үнэлгээний эрсдэл (%)", "number", 0.05],
+  ["risk.risk_pct_by_grade.B", "B үнэлгээний эрсдэл (%)", "number", 0.05], ["risk.risk_pct_by_grade.C", "C үнэлгээний эрсдэл (%)", "number", 0.05],
+  ["selection.ideas", "Гаргах санааны тоо", "number", 1], ["selection.min_score", "Хамгийн бага оноо", "number", 1], ["selection.max_pair_correlation", "Зөвшөөрөх дээд корреляци", "number", 0.05],
+  ["technical.price_source", "Үнийн эх сурвалж", ["auto", "mt5", "yahoo"]]];
+let SET0 = {};
+function fillSettings(d) {
+  SET0 = d; const ro = d._readonly || {};
+  $("#setro").innerHTML = [["Програм", esc(ro.program)], ["Ашгийн зорилт", ro.profit_target_pct + "%"], ["Өдрийн алдагдлын хязгаар", ro.daily_loss_limit_pct + "%"], ["Нийт алдагдлын хязгаар", ro.max_loss_pct + "%"],
+    ["Дүрэм баталгаажсан", ro.rules_verified ? `<span class="pos">тийм</span>` : `<span class="warnc">үгүй</span>`], ["Contract size баталгаажсан", `${ro.contracts_verified} / ${ro.instruments} хэрэгсэл`],
+    ["Зардлаар хасагдсан", (ro.excluded || []).length ? `<span title="Спред + своп эрсдэлийн ${100 * ro.max_cost_r}%-иас давсан. Шинэчлэх: python -m fivers_bot costs --apply">${ro.excluded.length}: ${esc(ro.excluded.join(", "))}</span>` : "байхгүй"]]
+    .map(([l, v]) => `<div class="row"><span class="meta">${l}</span><span>${v}</span></div>`).join("") + `<div class="sub">Дүрмийн хувийг config.json → account хэсгээс өөрчилнө.</div>`;
+  $("#setfields").innerHTML = SETF.map(([k, l, t, step, ph]) => `<label>${l}${Array.isArray(t) ? `<select data-k="${k}">${t.map(o => `<option${d[k] === o ? " selected" : ""}>${o}</option>`).join("")}</select>`
+    : `<input data-k="${k}" type="number" step="${step}" value="${d[k] ?? ""}" placeholder="${ph || ""}">`}</label>`).join("");
+}
+async function loadSettings() { fillSettings(await getJ("/api/settings")); $("#setmsg").textContent = ""; }
+$("#setform").onsubmit = async e => {
+  e.preventDefault();
+  const changes = {};
+  document.querySelectorAll("#setfields [data-k]").forEach(el => { const k = el.dataset.k, v = el.value, old = SET0[k] == null ? "" : String(SET0[k]); if (v !== old) changes[k] = v === "" ? null : v; });
+  if (!Object.keys(changes).length) { $("#setmsg").textContent = "Өөрчлөлт алга."; return; }
+  const r = await fetch("/api/settings", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({changes})}), d = await r.json();
+  if (!r.ok) { $("#setmsg").innerHTML = `<span class="neg">${esc(d.error || "Алдаа")}</span>`; return; }
+  fillSettings(d); $("#setmsg").innerHTML = `<span class="pos">Хадгалагдлаа ✓</span> — дараагийн санаа гаргалтаас үйлчилнэ.`;
+};
+
+(async () => {
+  try { MODE = await getJ("/api/mode"); } catch (e) { MODE = {public: false}; }
+  if (MODE.public) {
+    document.body.classList.add("public");
+    $("#pubnote").hidden = false;
+    if (MODE.static) document.body.classList.add("static");
+    $("#pubnote").innerHTML = MODE.static ? `<b>Нийтийн шинжилгээний самбар.</b> Санаанууд ${MODE.auto_min} минут орчим тутам автоматаар шинэчлэгдэнэ
+      (сүүлд: ${esc(fmtDT(MODE.exported_at ? new Date(MODE.exported_at) : null))}). Лот, эрсдэлийг $100,000-ын жишээ дансаар тооцсон. Үнэ: Yahoo Finance (брокерын үнээс зөрнө).
+      <b>Энэ нь санхүүгийн зөвлөгөө биш</b> — түүхэн тестээр эдгээр санаа зардлын дараа эерэг үр дүн өгөөгүй.` : `<b>Нийтийн шинжилгээний самбар.</b> Санаанууд ${MODE.auto_min} минут тутам автоматаар шинэчлэгдэнэ; хэн ч «Шинэ санаа гаргах» дарж болох ч ${MODE.cooldown_min} минутад нэг удаа.
+      Лот, эрсдэлийг $100,000-ын жишээ дансаар тооцсон. Үнэ: Yahoo Finance (брокерын үнээс зөрнө). <b>Энэ нь санхүүгийн зөвлөгөө биш</b> — түүхэн тестээр эдгээр санаа зардлын дараа эерэг үр дүн өгөөгүй.`;
+    if (!MODE.static) { setInterval(cooldownTick, 15000); cooldownTick(); }
+  }
+  await loadList();
+  const h = location.hash.slice(1); if (TITLES[h]) show(h);
+  const st = await getJ("/api/status");
+  if (st.running) poll(st.kind);
+})();
+</script>
+</body>
+</html>
