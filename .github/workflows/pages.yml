@@ -40,7 +40,11 @@ jobs:
           key: fxbot-${{ github.run_id }}
           restore-keys: fxbot-
       - name: Generate ideas
-        run: python -m fivers_bot ideas || echo "ideas run failed - publishing previous reports"
+        run: |
+          set +e
+          python -m fivers_bot ideas > build.log 2>&1
+          echo "ideas exit code: $?" >> build.log
+          tail -n 60 build.log
       - name: Export static dashboard
         run: python -m fivers_bot.export_static site
       - name: Save cache

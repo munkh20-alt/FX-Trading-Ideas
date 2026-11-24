@@ -161,6 +161,14 @@ def export(out: str) -> dict:
             shutil.copy2(os.path.join(web.STATIC, f), out)
     with open(os.path.join(out, ".nojekyll"), "w") as fh:
         fh.write("")
+    # GitHub Actions-ийн санаа гаргах лог (нийтийн горим — хувийн мэдээлэлгүй): алдааг нэвтрэлтгүй харах боломжтой
+    blog = os.path.join(web.HERE, "build.log")
+    if os.path.exists(blog):
+        with open(blog, encoding="utf-8", errors="replace") as fh:
+            tail = fh.read().splitlines()[-200:]
+        tail += ["", "export errors:"] + (stats["errors"] or ["(алга)"])
+        with open(os.path.join(out, "build_log.txt"), "w", encoding="utf-8") as fh:
+            fh.write("\n".join(tail) + "\n")
     return stats
 
 
