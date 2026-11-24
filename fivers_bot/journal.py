@@ -1,6 +1,7 @@
 """Арилжааны журнал: бодитоор хийсэн арилжаагаа бүртгэж, үр дүн, өдрийн P/L, дараалсан алдагдлыг хянана.
 
-journal.json (төслийн үндсэн хавтаст). Бот өөрөө арилжаа хийхгүй — бичлэгийг хэрэглэгч вэб самбараас оруулна.
+Хадгалалт: data/fxbot.db (SQLite, journal хүснэгт) — анх удаа journal.json-ийг импортлоно; journal.json-ийг нөөц болгон
+давхар бичнэ. Бот өөрөө арилжаа хийхгүй — бичлэгийг хэрэглэгч вэб самбараас оруулна.
 """
 import json
 import os
@@ -18,15 +19,29 @@ def _path(root: str) -> str:
     return os.path.join(root, "journal.json")
 
 
-def load(root: str) -> List[dict]:
+def _db(root: str) -> str:
+    return os.path.join(root, "data", "fxbot.db")
+
+
+def _load_json(root: str) -> List[dict]:
     try:
         with open(_path(root), encoding="utf-8") as fh:
             return json.load(fh).get("entries", [])
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         return []
 
 
+def load(root: str) -> List[dict]:
+    from . import storage
+    try:
+        return storage.journal_load(_path(root), _db(root))
+    except Exception:  # noqa: BLE001 — сан эвдэрсэн/түгжигдсэн бол JSON нөөцөөс
+        return _load_json(root)
+
+
 def _save(root: str, entries: List[dict]) -> None:
+    from . import storage
+    storage.journal_save(entries, _db(root))
     tmp = _path(root) + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump({"entries": entries}, fh, ensure_ascii=False, indent=1)

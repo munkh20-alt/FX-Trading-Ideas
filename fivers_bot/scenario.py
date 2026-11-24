@@ -95,6 +95,8 @@ def recalc(report: dict, cfg: dict, settings: dict, cal: Optional[dict] = None, 
     max_lots = {**DEFAULT_MAX_LOT, **rk.get("max_lot_by_kind", {})}
     unv_factor = float(rk.get("unverified_contract_risk_factor", 0.5))
     cost_r = float(cfg.get("technical", {}).get("backtest_cost_r", 0.04))
+    # Спредийн мэдээлэлгүй санаанд түүхэн тестийн дундаж нийт зардал (своп орсон), байхгүй бол backtest_cost_r
+    cost_avg = float(((cal or {}).get("costs") or {}).get("avg_cost_r") or cost_r)
     daily_limit = bal * acc["daily_loss_limit_pct"] / 100
     inst_by = {i["symbol"]: i for i in cfg["instruments"]}
     rates = report.get("rates", {})
@@ -134,7 +136,14 @@ def recalc(report: dict, cfg: dict, settings: dict, cal: Optional[dict] = None, 
                 grade1 = d["grade"]
         base = base_2r(cal, d["kind"], curve) if cal else d.get("hist_win_rate")
         p0, p1 = prob(rr0, base, 2.0, curve), prob(rr1, base, 2.0, curve)
-        ev = lambda p, rr: None if p is None else round(p * rr - (1 - p) - cost_r, 3)  # noqa: E731
+        # Санаа бүрийн бодит зардал (__main__._attach_costs_ev-тэй ижил): спред+гулсалт, шимтгэл, своп
+        slip = float(cfg.get("costs", {}).get("slippage_r", 0.01))
+        c_i = ((d["spread_r"] + slip) if d.get("spread_r") is not None else cost_avg) + (d.get("comm_r") or 0.0) \
+            + (d.get("swap_r") or 0.0)
+        if d.get("ev_method") == "segment":      # research-ийн сегментийн EV (0 шөнө барих) — TP өөрчлөлтөөр дахин тооцохгүй
+            ev = lambda p, rr, _e=d.get("expected_r"): _e  # noqa: E731
+        else:
+            ev = lambda p, rr, _c=c_i: None if p is None else round(p * rr - (1 - p) - _c, 3)  # noqa: E731
         inst = inst_by.get(d["symbol"], {})
         verified = d["kind"] == "forex" or bool(inst.get("contract_verified"))
         rows.append({
@@ -150,7 +159,14 @@ def recalc(report: dict, cfg: dict, settings: dict, cal: Optional[dict] = None, 
         })
 
     # Эрсдэлийн хуваарилалт — зөвхөн лот тооцох боломжтой, хасагдаагүй мөрүүдийн дунд
-    active = [r for r in rows if not r["excluded"] and r["vpp"] and r["sl_dist"] > 0]
+    if rk.get("require_positive_ev", False):           # хатуу EV шүүлтүүр — тооцоолуурт ч мөрдөнө
+        floor = float(rk.get("min_expected_r", 0.0))
+        for r in rows:
+            ev_r = r["new"]["ev_r"]
+            if not r["excluded"] and (ev_r is None or ev_r <= floor):
+                r["ev_gated"] = True
+                r["notes"].append("Хүлээгдэх өгөөж сөрөг/батлагдаагүй (EV ≤ 0) — лот 0, зөвхөн ажиглах")
+    active = [r for r in rows if not r["excluded"] and not r.get("ev_gated") and r["vpp"] and r["sl_dist"] > 0]
     for r in active:
         pct = per_trade if per_trade is not None else float(rk["risk_pct_by_grade"].get(r["new"]["grade"], 0.0))
         r["new"]["risk_pct"] = pct * (1.0 if r["contract_verified"] else unv_factor)
@@ -160,7 +176,7 @@ def recalc(report: dict, cfg: dict, settings: dict, cal: Optional[dict] = None, 
         n, b = r["new"], r["base"]
         if r not in active:
             n.update(lots=0.0, risk_pct=0.0, risk_usd=0.0, profit_tp1=0.0, profit_tp2=0.0, pip_value=None)
-            if not r["excluded"]:
+            if not r["excluded"] and not r.get("ev_gated"):
                 r["notes"].append("Лот тооцох ханшийн мэдээлэл дутуу")
         else:
             n["risk_pct"] = round(n["risk_pct"] * scale, 3)
@@ -212,5 +228,5 @@ def recalc(report: dict, cfg: dict, settings: dict, cal: Optional[dict] = None, 
     return {"settings": {"balance": bal, "total_risk_pct": cap_pct, "risk_per_trade_pct": per_trade, "min_tp_pips": min_tp,
                          "min_rr": min_rr, "tp_mode": mode},
             "daily_loss_limit_usd": round(daily_limit, 2), "rows": rows, "totals": {"base": totals_base, "new": totals_new},
-            "warnings": warnings, "prob_note": note + f" Хүлээгдэх дүнгээс зардал ({cost_r}R) хасагдсан.",
+            "warnings": warnings, "prob_note": note + f" Хүлээгдэх дүнгээс санаа бүрийн бодит зардал (спред, шимтгэл, своп) хасагдсан.",
             "scaled": scale < 1.0}

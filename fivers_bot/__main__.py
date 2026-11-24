@@ -6,6 +6,7 @@
 """
 import argparse
 import json
+import math
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -22,7 +23,7 @@ from .scenario import base_2r, prob as scenario_prob
 from .consensus import consensus, key, load_views, prune, save_view, validate
 from .review import review_all
 from .risk import allocate
-from .strategy import analyze_all, apply_extra, apply_institutional, select
+from .strategy import analyze_all, apply_extra, apply_institutional, apply_profiles, grade_from_ev, select
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SETUP_MN = {"PULLBACK": "Трендийн буцалт (pullback)", "BREAKOUT": "Бүтцийн сэтлэлт (breakout)",
@@ -32,7 +33,7 @@ LABEL = {
     "rr": "Өгөөж/Эрсдэл", "room": "Чөлөөт зай", "chart": "График/SMC", "ccy_strength": "Валютын хүч",
     "sentiment": "Сэтгэл зүй", "banks": "Банкууд", "analysts": "Шинжээчид", "cot": "COT байршил", "news": "Мэдээ",
 }
-MAX = {"trend": 25, "strength": 15, "momentum": 15, "setup": 20, "rr": 15, "room": 10}
+MAX = {"trend": 25, "strength": 15, "momentum": 15, "setup": 20, "rr": 10, "room": 10}
 EXTRA = ("chart", "ccy_strength", "sentiment", "banks", "analysts", "cot", "news")
 KIND_MN = {"forex": "Форекс", "index": "Индекс", "metal": "Металл", "crypto": "Крипто", "energy": "Эрчим хүч"}
 
@@ -57,9 +58,13 @@ def load_institutional(args, cfg):
     if ncfg.get("enabled", True) and not args.synthetic and not getattr(args, "no_news", False):
         try:
             from . import econcal
-            events, cmeta = econcal.load(os.path.join(HERE, "cache"))
+            events, cmeta = econcal.load(os.path.join(HERE, "cache"), provider=ncfg.get("provider", "auto"))
+            skipped = [t["name"] for t in cmeta["tried"] if t.get("skipped")]
             notes.append(f"Эдийн засгийн календарь: {cmeta['source']}"
-                         + "".join(f" · {t['name']} амжилтгүй ({t['msg']})" for t in cmeta["tried"] if not t["ok"]))
+                         + ("" if cmeta.get("has_actual") else " (бодит утга [actual] бүрэн биш)")
+                         + "".join(f" · {t['name']} амжилтгүй ({t['msg']})" for t in cmeta["tried"]
+                                   if not t["ok"] and not t.get("skipped"))
+                         + (f" · түлхүүргүй тул алгассан: {', '.join(skipped)}" if skipped else ""))
         except newsm.NewsError as e:
             notes.append(f"Мэдээний шүүлтүүр ажиллахгүй: {e} — календарийг өөрөө шалгана уу")
     icfg = dict(icfg, _events=events, _news=ncfg)
@@ -213,13 +218,28 @@ def run_ideas(args, cfg):
     # Сонголт → лот тооцоо. Хамгийн бага лот ч эрсдэлээс давсан (арилжаалах боломжгүй) санааг сольж дахин сонгоно.
     # Корреляцийн хөдөлгүүр: санаатай хэрэгслүүдийн өдрийн өгөөжийн хамаарал
     have = {i.symbol for i in ideas}
-    corr = chartm.return_correlation({s: d[0] for s, d in data.items() if s in have})
-    pool = list(ideas)
+    corr = chartm.stress_correlation({s: d[0] for s, d in data.items() if s in have})
+    now = datetime.now(timezone.utc)
+    # Түүхэн тестийн бодит үр дүн (python -m fivers_bot backtest) — оноо биш, хэмжсэн хувь.
+    # Зардал ба хүлээгдэх утгыг (EV) лот хуваарилахаас ӨМНӨ тооцно — EV ≤ 0 санаанд лот өгөхгүй (risk.ev_gate_fails).
+    cal = None if args.synthetic else load_calibration(HERE)
+    curve = load_target_curve(HERE)
+    cost_r = float(tcfg.get("backtest_cost_r", 0.04))
+    segs = None if args.synthetic else _load_segments(HERE)
+    for i in ideas:
+        _attach_costs_ev(i, inst_by_symbol[i.symbol], cfg, cal, curve, cost_r,
+                         None if args.synthetic else dm.mt5_quote(i.symbol), segs,
+                         (cfg.get("strategy_profiles") or {}).get(i.kind))
+    # Төрөл бүрийн стратегийн профайл (config.json → strategy_profiles)
+    profiles = cfg.get("strategy_profiles")
+    pool = apply_profiles(ideas, profiles, aligned=_macro_aligned_fn(ideas, args, inst_by_symbol, now) if profiles else None)
+    if len(pool) < len(ideas):
+        inst_notes.append(f"Стратегийн профайл: {len(ideas) - len(pool)} нэр дэвшигчийг хассан (config.json → strategy_profiles)")
     for _ in range(8):
         chosen = select(pool, cfg, inst_by_symbol, corr)
         marks = {id(i): len(i.warnings) for i in chosen}
         summary = allocate(chosen, cfg, inst_by_symbol, rates)
-        dead = [i for i in chosen if not i.lots]
+        dead = [i for i in chosen if not i.lots and not i.observe_only]     # зөвхөн ажиглах санааг солихгүй
         if not dead or summary["open_risk_cap_pct"] <= 0:      # төсөв 0 бол сольж сонгох нь утгагүй
             break
         pool = [i for i in pool if i not in dead]
@@ -227,16 +247,23 @@ def run_ideas(args, cfg):
             break
         for i in chosen:
             del i.warnings[marks[id(i)]:]
-    now = datetime.now(timezone.utc)
     summary["analyzed"] = len(ideas)
+    acc_c = cfg["account"]
+    if acc_c.get("source") == "mt5" and acc_c.get("free_margin") and any(i.lots for i in chosen):
+        from .risk import apply_margin_cap
+        mpl = {}
+        for i in chosen:
+            if i.lots:
+                m = dm.mt5_margin(i.symbol, i.side, i.entry)
+                if m:
+                    mpl[id(i)] = m
+        w = apply_margin_cap(chosen, summary, mpl, acc_c["free_margin"], float(cfg["risk"].get("margin_share", 0.5)))
+        if w:
+            inst_notes.append(w)
     held = set(cfg["account"].get("open_symbols") or [])
     for i in chosen:
         if i.symbol in held:
             i.warnings.append("Энэ символд MT5 дээр нээлттэй позиц/захиалга аль хэдийн байна — давхар эрсдэл")
-    # Түүхэн тестийн бодит үр дүн (python -m fivers_bot backtest) — оноо биш, хэмжсэн хувь
-    cal = None if args.synthetic else load_calibration(HERE)
-    curve = load_target_curve(HERE)
-    cost_r = float(tcfg.get("backtest_cost_r", 0.04))
     # Үнийн эх сурвалж ба брокерын бодит спред (MT5 холбогдсон үед). Спред нь тухайн агшных.
     from . import macro as macrom
     try:
@@ -257,6 +284,38 @@ def run_ideas(args, cfg):
         cx_now = ca.asof(cx_tab, now + timedelta(days=1)) if cx_tab is not None else None
     except Exception:  # noqa: BLE001
         cx_now = None
+    # macro v2 (мэдээлэл, оноонд ороогүй): эдийн засгийн сюрприз (ESI), 2 жилийн хүүний зөрүү, бодит хүү, VIX горим
+    from . import econcal, surprise
+    try:
+        esi_scored = None if args.synthetic else surprise.score(econcal.load_archive(os.path.join(HERE, "cache")))
+    except Exception as e:  # noqa: BLE001
+        esi_scored = None
+        inst_notes.append(f"Эдийн засгийн сюрприз тооцож чадсангүй: {str(e)[:120]}")
+    try:
+        mx_tab, mx_meta = (None, {"warnings": []}) if args.synthetic else macrom.macro_series(HERE)
+    except Exception as e:  # noqa: BLE001
+        mx_tab, mx_meta = None, {"warnings": [str(e)[:120]]}
+    if mx_meta.get("warnings"):
+        inst_notes.append("Макро цуврал (FRED/ECB): " + "; ".join(mx_meta["warnings"][:4]))
+    if esi_scored is not None:
+        summary["surprise_index"] = surprise.esi_table(esi_scored, now)
+        summary["surprise_events"] = int(len(esi_scored))
+    if mx_tab is not None:
+        summary["us_rates"] = macrom.us_rates_now(mx_tab, now)
+    summary["fedwatch"] = macrom.fedwatch()
+    # Мэдээний автомат сентимент (nlp_news.py) — мэдээлэл, research-ээр батлагдах хүртэл оноонд ороогүй
+    news_agg = None
+    if not args.synthetic:
+        from . import nlp_news
+        try:
+            ndf, nmeta = nlp_news.refresh(HERE)
+            news_agg = nlp_news.aggregate(ndf, now)
+            summary["news_sentiment"] = {**news_agg, "scorer": nmeta.get("scorer")}
+            bad = [f"{k}: {v.get('msg', '')}" for k, v in (nmeta.get("sources") or {}).items() if not v.get("ok")]
+            if bad:
+                inst_notes.append("Мэдээний сентимент: " + "; ".join(b[:90] for b in bad))
+        except Exception as e:  # noqa: BLE001
+            inst_notes.append(f"Мэдээний сентимент тооцож чадсангүй: {str(e)[:120]}")
     for i in chosen:
         try:
             sgn = 1 if i.side == "BUY" else -1
@@ -276,33 +335,22 @@ def run_ideas(args, cfg):
                 i.macro["vix"] = us_now.get("vix")
             if cx_now:
                 i.macro.update(ca.aligned(cx_now, i.symbol, inst_by_symbol[i.symbol]["type"], sgn))
+            if esi_scored is not None:
+                ps = surprise.pair_surprise(esi_scored, i.symbol, i.side, now, inst_by_symbol[i.symbol].get("currency"))
+                i.macro.update(esi_base=ps["base_esi"], esi_quote=ps["quote_esi"], esi_al=ps["diff_aligned"])
+                if ps["recent_shocks"]:
+                    i.macro["esi_shocks"] = ps["recent_shocks"]
+            if news_agg is not None:
+                i.news_sentiment = nlp_news.idea_sentiment(news_agg, i.symbol, i.side, inst_by_symbol[i.symbol]["type"],
+                                                           inst_by_symbol[i.symbol].get("currency"))
+            if inst_by_symbol[i.symbol]["type"] == "forex" and (mx_tab is not None or pol_rates is not None):
+                ys = macrom.y2_spread(mx_tab, i.symbol, now, pol_rates)
+                if ys["y2_spread"] is not None:
+                    i.macro.update(y2_spread_al=round(ys["y2_spread"] * sgn, 3) + 0.0, y2_source=ys["y2_source"],
+                                   y2_chg20_al=None if ys["y2_chg_20d"] is None else round(ys["y2_chg_20d"] * sgn, 3) + 0.0)
         except Exception:  # noqa: BLE001
             i.macro = None
         i.price_source = "synthetic" if args.synthetic else dm.LAST_SOURCE.get(inst_by_symbol[i.symbol]["ticker"], "yahoo")
-        q = None if args.synthetic else dm.mt5_quote(i.symbol)
-        dist = abs(i.entry - i.stop)
-        ins = inst_by_symbol[i.symbol]
-        sw = ins.get("swap_long" if i.side == "BUY" else "swap_short")
-        if dist > 0 and ins.get("cost_ref_price"):
-            # Своп, шимтгэл (python -m fivers_bot costs --apply) — үнийн харьцаагаар хадгалсныг одоогийн үнээр.
-            # Барих шөнийн тоо: түүхэн тестээр хэмжсэн тухайн төрлийн дундаж, байхгүй бол тохиргооных.
-            k_cost = ((cal or {}).get("costs", {}).get("by_kind", {}).get(i.kind) or {})
-            i.hold_nights = round(float(k_cost.get("avg_nights") or cfg.get("costs", {}).get("hold_nights", 2)), 1)
-            scale = i.entry / ins["cost_ref_price"] / dist
-            i.comm_r = round(float(ins.get("commission_rel", 0.0)) * i.entry / dist, 3)
-            if sw is not None:
-                i.swap_r = round(-sw * scale * i.hold_nights, 3)
-                if i.swap_r > 0.15:
-                    i.warnings.append(f"Своп өндөр: {i.hold_nights:g} шөнө барихад SL зайн {100 * i.swap_r:.0f}% — "
-                                      "богино хугацаанд хаах эсвэл алгасах")
-        if q and dist > 0:
-            i.spread, i.spread_r = round(q["spread"], 6), round(q["spread"] / dist, 3)
-            if i.spread_r > 0.3:
-                i.lots, i.risk_pct, i.risk_usd = 0.0, 0.0, 0.0
-                i.warnings.append(f"Спред SL зайн {100 * i.spread_r:.0f}% — зардал хэт өндөр тул лот 0 (арилжаа хийхгүй)")
-            elif i.spread_r > 0.15:
-                i.warnings.append(f"Спред өргөн байна: SL зайн {100 * i.spread_r:.0f}% — зах зээл хаалттай/идэвх багатай үе байж болно, "
-                                  f"спред хэвийн болтол хүлээ")
     used = {dm.LAST_SOURCE.get(i["ticker"], "yahoo") for i in insts}
     summary["price_source"] = ("synthetic" if args.synthetic else "MT5 (брокер)" if used == {"mt5"}
                                else "Yahoo Finance" if used == {"yahoo"} else "MT5 + Yahoo")
@@ -313,26 +361,16 @@ def run_ideas(args, cfg):
         inst_notes.append(f"{len(on_yahoo)} хэрэгслийн үнэ Yahoo Finance-ээс ирсэн (MT5 холбогдоогүй эсвэл символ олдоогүй) — брокерын үнээс зөрж болно. "
                           "MT5 терминалаа нээж нэвтэрсэн байвал брокерын үнийг ашиглана.")
     if cal:
-        for i in chosen:
-            k = cal.get("by_kind", {}).get(i.kind)
-            src = k if k and k["n"] >= 300 else {"win_rate": cal["base_win_rate"], "avg_r": cal["avg_r"], "n": cal["resolved"]}
-            i.hist_win_rate, i.hist_avg_r, i.hist_n = src["win_rate"], src["avg_r"], src["n"]
-            # Хүлээгдэх утга (R): түүхэн хувийг энэ санааны R:R-д хөрвүүлж (зорилт холдох тусам магадлал буурна)
-            p = scenario_prob(i.rr, base_2r(cal, i.kind, curve), 2.0, curve)
-            # Зардал: одоогийн бодит спред + гулсалт (MT5-гүй бол түүхэн тестийн суурь зардал) + шимтгэл + своп
-            slip = float(cfg.get("costs", {}).get("slippage_r", 0.01))
-            cost_i = (i.spread_r + slip if i.spread_r is not None else cost_r) + (i.comm_r or 0.0) + (i.swap_r or 0.0)
-            i.expected_r = None if p is None else round(p * i.rr - (1.0 - p) - cost_i, 2)
-            # Confidence (эрэмбийн оноо) ба Probability (түүхэн магадлал)-ийг тусад нь харуулна
-            i.prob_tp1 = p
-            rr2 = abs(i.tp2 - i.entry) / abs(i.entry - i.stop) if i.entry != i.stop else 0.0
-            i.prob_tp2 = scenario_prob(rr2, base_2r(cal, i.kind, curve), 2.0, curve)
         summary["backtest"] = {k: cal[k] for k in ("base_win_rate", "avg_r", "breakeven_win_rate", "resolved", "period", "created")}
     else:
         inst_notes.append("Түүхэн тестийн үр дүн алга — `python -m fivers_bot backtest` ажиллуулна уу")
+    if summary.get("drawdown_warning"):
+        inst_notes.append(summary["drawdown_warning"])
+    if summary["ev_gate"]["enabled"] and summary["ev_gate"]["observe_only"]:
+        inst_notes.append(f"EV шүүлтүүр: {summary['ev_gate']['observe_only']}/{len(chosen)} санааны хүлээгдэх утга ≤ "
+                          f"{summary['ev_gate']['min_expected_r']:+.2f}R эсвэл нотолгоо сул — лот 0, зөвхөн ажиглах "
+                          "(config.json → risk.require_positive_ev).")
     for i in chosen:
-        # Эерэг хүлээгдэх утга түүхэн тестээр батлагдаагүй бол НОТОЛГОО СУЛ гэж ил тод тэмдэглэнэ
-        i.evidence = "OK" if (i.expected_r is not None and i.expected_r > 0) else "LOW"
         i.valid_until = (now + timedelta(hours=120 if i.order_type == "LIMIT" else 4)).strftime("%Y-%m-%d %H:%M UTC")
     summary["evidence_low"] = sum(i.evidence == "LOW" for i in chosen)
     if not summary.get("rules_verified"):
@@ -369,6 +407,11 @@ def run_ideas(args, cfg):
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2)
     print(f"\nТайлан хадгалагдлаа: {path}")
+    try:
+        from . import storage
+        storage.log_signals(os.path.basename(path), report)
+    except Exception as e:  # noqa: BLE001 — бүртгэл нь туслах; тайланг зогсоохгүй
+        print(f"(SQLite-д бүртгэж чадсангүй: {e})")
     return 0
 
 
@@ -378,7 +421,7 @@ def print_report(ideas, s, cfg, now, failed, synthetic):
     print(line)
     if synthetic:
         print("⚠  ТЕСТИЙН ХИЙМЭЛ ӨГӨГДӨЛ — эдгээр санаа бодит зах зээлийг ХАРУУЛАХГҮЙ  ⚠")
-    print(f" 5ers DEMO — {len(ideas)} арилжааны санаа ({s.get('analyzed', '?')}/{s.get('universe', '?')} хэрэгслээс)   |   {now:%Y-%m-%d %H:%M} UTC")
+    print(f" 5ers DEMO — {len(ideas)} арилжааны санаа ({s.get('universe', '?')} хэрэгсэл шинжилж, {s.get('analyzed', '?')}-д сетап олдсон)   |   {now:%Y-%m-%d %H:%M} UTC")
     print(f" Программ: {acc['program']}   Баланс: ${s['balance']:,.0f}"
           + ("   (MT5 данснаас уншсан)" if acc.get("source") == "mt5" else "   (config.json — MT5 данс уншаагүй)"))
     if acc.get("source") == "mt5":
@@ -403,7 +446,17 @@ def print_report(ideas, s, cfg, now, failed, synthetic):
             print(f"    Түүхэн бодит хувь: ижил төрлийн {i.hist_n:,} санааны {100 * i.hist_win_rate:.0f}% нь TP1-д хүрсэн "
                   f"(дундаж {i.hist_avg_r:+.2f}R)")
         if i.expected_r is not None:
-            print(f"    Хүлээгдэх утга: {i.expected_r:+.2f}R (түүхэн хувь, R:R {i.rr}, зардал тооцсон)")
+            how = "research сегмент" if i.ev_method == "segment" else f"түүхэн хувь, R:R {i.rr}"
+            print(f"    Хүлээгдэх утга: {i.expected_r:+.2f}R ({how}, зардал тооцсон)  EV үнэлгээ: {i.ev_grade or '—'}"
+                  + (f"  (95% доод {i.ev_low:+.2f}R)" if i.ev_low is not None else ""))
+            w = i.ev_waterfall or {}
+            if "gross_r" in w:
+                print(f"    EV задаргаа: зардлын өмнө {w['gross_r']:+.2f} − спред/гулсалт {w['spread_slip_r']:.2f} − шимтгэл "
+                      f"{w['comm_r']:.2f} − своп {w['swap_r']:.2f} = {w['net_r']:+.2f}R")
+        if i.hold_plan:
+            print(f"    Барих хугацаа: {i.hold_plan}")
+        if i.action_hint:
+            print(f"    Зөвлөмж: {i.action_hint}")
         if i.prob_tp1 is not None:
             p2 = f" · TP2 {100 * i.prob_tp2:.0f}%" if i.prob_tp2 is not None else ""
             print(f"    Түүхэн магадлал: TP1 {100 * i.prob_tp1:.0f}%{p2} · SL/хугацаа дуусах {100 * (1 - i.prob_tp1):.0f}%"
@@ -542,11 +595,120 @@ def run_prune(args, cfg):
     return 0
 
 
+def _macro_aligned_fn(ideas, args, inst_by_symbol, now):
+    """strategy_profiles.require_macro_alignment-д: эдийн засгийн сюрпризийн нийцэл (esi_al > 0). Мэдээлэлгүй бол None."""
+    if args.synthetic:
+        return None
+    from . import econcal, surprise
+    try:
+        sc = surprise.score(econcal.load_archive(os.path.join(HERE, "cache")))
+    except Exception:  # noqa: BLE001
+        return None
+
+    def fn(i):
+        d = surprise.pair_surprise(sc, i.symbol, i.side, now, inst_by_symbol.get(i.symbol, {}).get("currency"))["diff_aligned"]
+        return None if d is None else d > 0
+    return fn
+
+
+def _load_segments(root: str):
+    """research_report.json → segments: {"forex|LIMIT|t2_n0": {all, train, valid, test}} (зардлын дараах R)."""
+    try:
+        with open(os.path.join(root, "research_report.json"), encoding="utf-8") as fh:
+            return json.load(fh).get("segments")
+    except (OSError, ValueError):
+        return None
+
+
+def _wilson_low(p: float, n: int, z: float = 1.96) -> Optional[float]:
+    if p is None or not n:
+        return None
+    d = 1 + z * z / n
+    c = p + z * z / (2 * n)
+    m = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
+    return (c - m) / d
+
+
+def _attach_costs_ev(i, ins: dict, cfg: dict, cal, curve, cost_r: float, q, segs=None, prof=None) -> None:
+    """Санааны зардал (спред, шимтгэл, своп) ба түүхэн хувиар хүлээгдэх утга (R), нотолгоог тооцно.
+    Лот хуваарилахаас өмнө дуудна (EV шүүлтүүр). q = MT5-ийн одоогийн үнэ (байхгүй бол None)."""
+    dist = abs(i.entry - i.stop)
+    sw = ins.get("swap_long" if i.side == "BUY" else "swap_short")
+    if dist > 0 and ins.get("cost_ref_price"):
+        # Своп, шимтгэл (python -m fivers_bot costs --apply) — үнийн харьцаагаар хадгалсныг одоогийн үнээр.
+        # Барих шөнийн тоо: түүхэн тестээр хэмжсэн тухайн төрлийн дундаж, байхгүй бол тохиргооных.
+        k_cost = ((cal or {}).get("costs", {}).get("by_kind", {}).get(i.kind) or {})
+        i.hold_nights = round(float(k_cost.get("avg_nights") or cfg.get("costs", {}).get("hold_nights", 2)), 1)
+        scale = i.entry / ins["cost_ref_price"] / dist
+        i.comm_r = round(float(ins.get("commission_rel", 0.0)) * i.entry / dist, 3)
+        if sw is not None:
+            i.swap_r = round(-sw * scale * i.hold_nights, 3)
+            if i.swap_r > 0.15:
+                i.warnings.append(f"Своп өндөр: {i.hold_nights:g} шөнө барихад SL зайн {100 * i.swap_r:.0f}% — "
+                                  "богино хугацаанд хаах эсвэл алгасах")
+    if q and dist > 0:
+        i.spread, i.spread_r = round(q["spread"], 6), round(q["spread"] / dist, 3)
+        if i.spread_r > 0.3:
+            i.warnings.append(f"Спред SL зайн {100 * i.spread_r:.0f}% — зардал хэт өндөр тул лот 0 (арилжаа хийхгүй)")
+        elif i.spread_r > 0.15:
+            i.warnings.append(f"Спред өргөн байна: SL зайн {100 * i.spread_r:.0f}% — зах зээл хаалттай/идэвх багатай үе байж болно, "
+                              f"спред хэвийн болтол хүлээ")
+    if cal:
+        k = cal.get("by_kind", {}).get(i.kind)
+        src = k if k and k["n"] >= 300 else {"win_rate": cal["base_win_rate"], "avg_r": cal["avg_r"], "n": cal["resolved"]}
+        i.hist_win_rate, i.hist_avg_r, i.hist_n = src["win_rate"], src["avg_r"], src["n"]
+        # Хүлээгдэх утга (R): түүхэн хувийг энэ санааны R:R-д хөрвүүлж (зорилт холдох тусам магадлал буурна)
+        p = scenario_prob(i.rr, base_2r(cal, i.kind, curve), 2.0, curve)
+        # Зардал: одоогийн бодит спред + гулсалт (MT5-гүй бол түүхэн тестийн суурь зардал) + шимтгэл + своп
+        slip = float(cfg.get("costs", {}).get("slippage_r", 0.01))
+        cost_i = (i.spread_r + slip if i.spread_r is not None else cost_r) + (i.comm_r or 0.0) + (i.swap_r or 0.0)
+        i.expected_r = None if p is None else round(p * i.rr - (1.0 - p) - cost_i, 2)
+        # Confidence (эрэмбийн оноо) ба Probability (түүхэн магадлал)-ийг тусад нь харуулна
+        i.prob_tp1 = p
+        rr2 = abs(i.tp2 - i.entry) / abs(i.entry - i.stop) if i.entry != i.stop else 0.0
+        i.prob_tp2 = scenario_prob(rr2, base_2r(cal, i.kind, curve), 2.0, curve)
+    slip = float(cfg.get("costs", {}).get("slippage_r", 0.01))
+    spread_cost = (i.spread_r + slip) if i.spread_r is not None else cost_r
+    if i.expected_r is not None:
+        i.ev_method = "curve"
+        gross = round(i.expected_r + spread_cost + (i.comm_r or 0.0) + (i.swap_r or 0.0), 3)
+        i.ev_waterfall = {"gross_r": gross, "spread_slip_r": round(spread_cost, 3), "comm_r": round(i.comm_r or 0.0, 3),
+                          "swap_r": round(i.swap_r or 0.0, 3), "net_r": i.expected_r}
+        n = int(i.hist_n or 0)
+        lo = _wilson_low(i.prob_tp1, n)
+        if lo is not None:
+            i.ev_low = round(lo * i.rr - (1 - lo) - (spread_cost + (i.comm_r or 0.0) + (i.swap_r or 0.0)), 3)
+    # Барих хугацааны хязгаартай профайл (max_hold_nights = 0: NY 17:00-ийн своп-оос өмнө хаана) — EV-г research-ийн
+    # тухайн сегментийн (төрөл × захиалга × 0 шөнө) зардлын дараах бодит дунджаар (муруйгаар биш)
+    if prof and prof.get("max_hold_nights") == 0:
+        i.hold_plan = "Шөнө барихгүй: Нью-Йоркийн 16:45-аас (своп бодогдохоос) өмнө хаана"
+        i.hold_nights, i.swap_r = 0.0, 0.0
+        seg = (segs or {}).get(f"{i.kind}|{i.order_type}|t2_n0")
+        if seg and seg.get("all", {}).get("avg") is not None:
+            a = seg["all"]
+            i.expected_r, i.ev_method = round(float(a["avg"]), 4), "segment"
+            i.ev_low = round(float(a["avg"]) - 1.96 * float(a.get("se") or 0.0), 4)
+            i.ev_waterfall = {"net_r": i.expected_r, "segment": f"{i.kind} {i.order_type} 0 шөнө", "n": a.get("n"),
+                              "test_r": (seg.get("test") or {}).get("avg")}
+    elif i.ev_waterfall and i.expected_r is not None and i.expected_r <= 0 and (i.swap_r or 0) > 0 \
+            and i.ev_waterfall["gross_r"] - spread_cost - (i.comm_r or 0.0) > 0:
+        seg = (segs or {}).get(f"{i.kind}|{i.order_type}|t2_n0")
+        tail = f" — research: энэ төрөл/захиалга 0 шөнө барихад дунджаар {seg['all']['avg']:+.3f}R (n={seg['all']['n']})" \
+            if seg and seg.get("all", {}).get("avg") is not None else ""
+        i.action_hint = f"Своп ({i.swap_r:.2f}R) EV-г сөрөг болгож байна: шөнө барихгүй (NY 16:45-аас өмнө хаах){tail}"
+    # Нотолгоо: EV эерэг БА 95%-ийн доод хязгаар нь ч эерэг (статистикийн хувьд тэгээс ялгаатай) бол л OK.
+    # Ингэснээр +0.0005R гэх мэт тэгтэй ялгаагүй дундаж EV шүүлтүүрийг давж лот авахгүй.
+    i.evidence = "OK" if (i.expected_r is not None and i.expected_r > 0 and i.ev_low is not None and i.ev_low > 0) else "LOW"
+    i.ev_grade = "D" if i.evidence == "LOW" else grade_from_ev(i.expected_r, i.ev_low, bool(getattr(i, "news_lock", False)))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="fivers_bot", description="5ers demo-д зориулсан арилжааны санаа")
-    p.add_argument("command", nargs="?", default="ideas", choices=["ideas", "review", "views", "add-view", "prune", "web", "backtest", "research", "mt5-specs", "costs", "styles", "cbank", "account"])
+    p.add_argument("command", nargs="?", default="ideas", choices=["ideas", "review", "views", "add-view", "prune", "web", "backtest", "research", "mt5-specs", "costs", "styles", "cbank", "account", "portfolio"])
     p.add_argument("--port", type=int, default=8050, help="web: серверийн порт")
     p.add_argument("--no-browser", action="store_true", help="web: браузерыг автоматаар нээхгүй")
+    p.add_argument("--engine", choices=["auto", "asgi", "stdlib"], default="auto",
+                   help="web: auto = Starlette/uvicorn суусан бол ASGI + WebSocket, үгүй бол стандарт сангийн сервер")
     p.add_argument("--host", default="local",
                    help="web: local (зөвхөн энэ компьютер) | tailscale (гар утаснаас, нууц түлхүүртэй) | <IP>")
     p.add_argument("--no-cot", action="store_true", help="CFTC COT татахгүй")
@@ -597,6 +759,9 @@ def main(argv=None):
     if args.command == "costs":
         from .costs import main as costs_main
         return costs_main(cfg, args.config, args.apply)
+    if args.command == "portfolio":
+        from .portfolio import main as pf_main
+        return pf_main(HERE, cfg)
     if args.command == "research":
         from .research import main as rs_main
         return rs_main(HERE, cfg, args.analyze)
@@ -613,10 +778,16 @@ def main(argv=None):
         from .backtest import main as bt_main
         return bt_main(HERE, cfg, args.analyze)
     if args.command == "web":
+        from . import asgi
         from .web import serve, serve_public
+        use_asgi = args.engine == "asgi" or (args.engine == "auto" and asgi.available())
+        if args.engine == "asgi" and not asgi.available():
+            print("ASGI сервер ашиглах боломжгүй (starlette, uvicorn, websockets суугаагүй) — стандарт сервер ашиглана.")
+            use_asgi = False
         if os.environ.get("FXBOT_PUBLIC") == "1":
-            return serve_public(int(os.environ.get("PORT", args.port if args.port != 8050 else 7860)))
-        return serve(args.port, not args.no_browser, args.host)
+            port = int(os.environ.get("PORT", args.port if args.port != 8050 else 7860))
+            return asgi.serve_public(port) if use_asgi else serve_public(port)
+        return (asgi.serve if use_asgi else serve)(args.port, not args.no_browser, args.host)
     return {"review": run_review, "views": run_views, "add-view": run_add_view, "prune": run_prune}.get(args.command, run_ideas)(args, cfg)
 
 

@@ -133,7 +133,18 @@ def _fetch(ticker: str, **kw) -> pd.DataFrame:
         if _MT5["source"] == "mt5" and ticker in _MT5["map"]:
             raise DataError(f"{ticker}: MT5-аас өгөгдөл авч чадсангүй (терминал нээлттэй, нэвтэрсэн эсэхээ шалгана уу)")
     if long_mode() and kw.get("period") in ("5y", "730d"):
-        raise DataError(f"{ticker}: урт түүх зөвхөн MT5-аас (Yahoo-д H1 нь 2 жил л байдаг)")
+        # MT5 байхгүй/богино бол түлхүүртэй нэмэлт эх сурвалж (OANDA, Twelve Data) — data_providers.py
+        from . import data_providers as dp
+        if sym and dp.available():
+            try:
+                df, prov = dp.history(sym, _MT5.get("kind", {}).get(sym, "forex"), kw.get("interval", "1h"), LONG_START)
+                if len(df):
+                    LAST_SOURCE[ticker] = prov
+                    return df
+            except dp.ProviderUnavailable as e:
+                raise DataError(f"{ticker}: урт түүх MT5-аас ч, нэмэлт эх сурвалжаас ч олдсонгүй ({e})") from e
+        raise DataError(f"{ticker}: урт түүх зөвхөн MT5-аас (Yahoo-д H1 нь 2 жил л байдаг; OANDA_API_KEY эсвэл "
+                        "TWELVEDATA_API_KEY тохируулбал тэдгээрээс татна)")
     LAST_SOURCE[ticker] = "yahoo"
     if "/" not in ticker:
         return _history(ticker, **kw)
@@ -193,9 +204,19 @@ def history_tag() -> str:
     return "_long" if long_mode() else ""
 
 
+_CFG_LOCK = threading.Lock()
+
+
 def _mt5_config():
     if _MT5["cfg"]:
         return
+    with _CFG_LOCK:                       # олон thread зэрэг анх удаа дуудахад нэг л удаа тохируулна
+        if _MT5["cfg"]:
+            return
+        _mt5_config_once()
+
+
+def _mt5_config_once():
     _MT5["cfg"] = True
     src = "yahoo"
     try:
@@ -205,6 +226,7 @@ def _mt5_config():
         every = cfg["instruments"] + cfg.get("excluded_instruments", [])
         _MT5["map"] = {i["ticker"]: i["symbol"] for i in every}
         _MT5["map"].update({f"{i['symbol']}=X": i["symbol"] for i in every if i["type"] == "forex"})
+        _MT5["kind"] = {i["symbol"]: i["type"] for i in every}
     except Exception:  # noqa: BLE001
         pass
     _MT5["source"] = os.environ.get("FXBOT_PRICE_SOURCE", src).lower()
@@ -239,16 +261,25 @@ def _mt5_offset(mt5):
     """Серверийн цагийн UTC-ээс зөрөх цаг. 24/7 арилждаг криптогийн сүүлийн tick-ээр тодорхойлно.
     Ихэнх брокер «Нью-Йоркийн хаалт + 7 цаг» (өвөл UTC+2, зун UTC+3) ашигладаг — таарвал зуны цагийн
     шилжилтийг түүхэн лаанд зөв тооцно."""
-    off = None
-    for s in ("BTCUSD", "ETHUSD"):
-        t = mt5.symbol_info_tick(s)
-        if t and abs(t.time - time.time()) < 14 * 3600:
-            off = round((t.time - time.time()) / 1800) / 2
-            break
+    off, src = None, None
+    # Бүх идэвхтэй символоос (суффикстэй хувилбар ч) хамгийн шинэ tick-ийг сонгоно: крипто эхэнд (24/7)
+    syms = list(dict.fromkeys(["BTCUSD", "ETHUSD"] + [s for s in _MT5.get("map", {}).values() if s]))
+    best = None
+    now = time.time()
+    for s in syms:
+        try:
+            t = mt5.symbol_info_tick(s)
+        except Exception:  # noqa: BLE001
+            t = None
+        if t and getattr(t, "time", 0) and abs(t.time - now) < 14 * 3600 and (best is None or t.time > best[1]):
+            best = (s, t.time)
+    if best:
+        src = best[0]
+        off = round((best[1] - now) / 1800) / 2
     ny = pd.Timestamp.now(tz="America/New_York").utcoffset().total_seconds() / 3600 + 7
     if off is None:
-        off = ny
-    _MT5["offset"], _MT5["ny"] = off, abs(off - ny) < 1e-9
+        off, src = ny, "NY+7 (tick олдсонгүй)"
+    _MT5["offset"], _MT5["ny"], _MT5["offset_source"] = off, abs(off - ny) < 1e-9, src
 
 
 def _server_to_utc(idx: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -389,6 +420,39 @@ def market_closed(symbol: str, kind: str, now=None, last=None, limit=None) -> Op
         if (now - last).total_seconds() / 3600 - weekend_hours(last, now) <= limit:
             return f"амралтын дараа зах зээл хараахан нээгдээгүй (сүүлийн лаа {last:%m-%d %H:%M} UTC)"
     return None
+
+
+def mt5_account_snapshot() -> Optional[dict]:
+    """MT5 дансны товч (ЗӨВХӨН УНШИНА: account_info, positions_get). Холбогдоогүй бол None."""
+    _mt5_config()
+    if _MT5["source"] not in ("auto", "mt5"):
+        return None
+    with _MT5_LOCK:
+        mt5 = _mt5_connect()
+        if mt5 is None:
+            return None
+        info = mt5.account_info()
+        pos = mt5.positions_get() or ()
+    if info is None:
+        return None
+    return {"balance": float(info.balance), "equity": float(info.equity),
+            "floating_pnl": round(float(info.equity) - float(info.balance), 2), "open_positions_count": len(pos)}
+
+
+def mt5_margin(symbol: str, side: str, price: float) -> Optional[float]:
+    """1 лотын шаардлагатай маржин (дансны валютаар) — MT5 order_calc_margin (ЗӨВХӨН ТООЦОО, захиалга илгээхгүй)."""
+    _mt5_config()
+    if _MT5["source"] not in ("auto", "mt5"):
+        return None
+    with _MT5_LOCK:
+        mt5 = _mt5_connect()
+        if mt5 is None:
+            return None
+        try:
+            m = mt5.order_calc_margin(0 if side == "BUY" else 1, symbol, 1.0, float(price))
+        except Exception:  # noqa: BLE001
+            return None
+    return float(m) if m else None
 
 
 def mt5_quote(symbol: str):

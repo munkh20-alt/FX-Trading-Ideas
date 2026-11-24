@@ -60,6 +60,14 @@ class Idea:
     prob_tp1: Optional[float] = None         # түүхэн муруйгаар TP1-д SL-ээс түрүүлж хүрэх магадлал
     prob_tp2: Optional[float] = None
     evidence: str = ""                       # LOW = түүхэн тестээр эерэг хүлээгдэх утга батлагдаагүй
+    observe_only: bool = False               # EV шүүлтүүр/өргөн спредээр лот 0 — зөвхөн ажиглах
+    news_sentiment: Optional[dict] = None    # мэдээний автомат сентимент (мэдээлэл, оноонд ороогүй)
+    ev_low: Optional[float] = None           # EV-ийн 95%-ийн доод хязгаар (Wilson / сегментийн SE)
+    ev_grade: str = ""                       # EV-д суурилсан үнэлгээ (A/B/C/D) — эрсдэлийн хэмжээг тогтооно
+    ev_method: str = ""                      # "curve" (түүхэн муруй) | "segment" (research: төрөл×захиалга×барих хугацаа)
+    ev_waterfall: Optional[dict] = None      # EV задаргаа: gross, spread+гулсалт, шимтгэл, своп, net (R)
+    action_hint: str = ""                    # EV-г эерэг болгох нөхцөлийн зөвлөмж (ойролцоо)
+    hold_plan: str = ""                      # барих хугацааны дүрэм (профайлаас)
     valid_until: str = ""                    # санааны хүчинтэй хугацаа (UTC)
     news_windows: List[str] = field(default_factory=list)   # мэдээний үеийн «захиалга биелүүлэхгүй» цонхнууд
 
@@ -72,7 +80,9 @@ def grade_of(score: float) -> str:
 
 
 def rr_points(rr: float) -> int:
-    return 15 if rr >= 2.5 else 11 if rr >= 2.0 else 7 if rr >= 1.5 else 3 if rr >= 1.2 else 0
+    """R:R хангалттай эсэх (1.2–3.0 = 10, бусад = 0). Хол TP-д НЭМЭЛТ оноо өгөхгүй: түүхэн тестээр R:R өсөх тусам
+    ялалтын магадлал буурдаг (calibration-ийн rr жин сөрөг) — ашиг/эрсдэлийн тэнцвэрийг EV (expected_r) хэмжинэ."""
+    return 10 if 1.2 <= rr <= 3.0 else 0
 
 
 def compress(raw: float) -> float:
@@ -400,6 +410,39 @@ def currencies(idea: Idea, inst_by_symbol: Optional[dict] = None) -> dict:
     return {}
 
 
+def grade_from_ev(ev_r: Optional[float], ev_low: Optional[float], news_lock: bool = False) -> str:
+    """EV-д суурилсан үнэлгээ: EV ≤ 0, мэдээний түгжээ → D (зөвхөн ажиглах); EV ≥ 0.15R ба 95% доод хязгаар > 0.05R → A;
+    EV ≥ 0.08R → B; бусад эерэг → C."""
+    if news_lock or ev_r is None or ev_r <= 0.0:
+        return "D"
+    if ev_low is not None and ev_low > 0.05 and ev_r >= 0.15:
+        return "A"
+    if ev_r >= 0.08:
+        return "B"
+    return "C"
+
+
+def apply_profiles(ideas: List[Idea], profiles: Optional[dict], aligned=None) -> List[Idea]:
+    """config.json → strategy_profiles: төрөл бүрт (forex/metal/index/crypto/energy) MARKET/LIMIT, сетапыг
+    тусад нь асаах/унтраах, макро нийцэл шаардах. aligned(idea) → True/False/None (None = мэдээлэлгүй → хасахгүй)."""
+    if not profiles:
+        return list(ideas)
+    out = []
+    for i in ideas:
+        p = profiles.get(i.kind) or profiles.get("default") or {}
+        if not p.get("allow_market", True) and i.order_type == "MARKET":
+            continue
+        if not p.get("allow_limit", True) and i.order_type == "LIMIT":
+            continue
+        setups = p.get("setups")
+        if setups and i.setup not in setups:
+            continue
+        if p.get("require_macro_alignment") and aligned is not None and aligned(i) is False:
+            continue
+        out.append(i)
+    return out
+
+
 def select(ideas: List[Idea], cfg: dict, inst_by_symbol: dict, corr: Optional[dict] = None) -> List[Idea]:
     """Оноогоор эрэмбэлээд төрөлжилт, корреляцийн хязгаартайгаар N санаа сонгоно.
     Хязгаар: валют бүр нэг чиглэлд ≤ max_same_currency_same_side (форекс + металл + крипто + эрчим хүч нийлээд),
@@ -411,13 +454,23 @@ def select(ideas: List[Idea], cfg: dict, inst_by_symbol: dict, corr: Optional[di
     if "max_us_indices" in sel_cfg:
         glim.setdefault("US", sel_cfg["max_us_indices"])
     min_grade_score = sel_cfg.get("min_score", 0)
-    rank = lambda i: (i.score, i.raw_score if i.raw_score is not None else i.score)  # noqa: E731
+    # Эрэмбэ: цэвэр хүлээгдэх утга (expected_r, зардлын дараа) эхэнд, оноо хоёрдугаарт. EV тооцоогүй бол оноогоор.
+    rank = lambda i: (i.expected_r if i.expected_r is not None else -1e9, i.score,  # noqa: E731
+                      i.raw_score if i.raw_score is not None else i.score)
+    ccy_cap = sel_cfg.get("max_usd_net_risk_pct")
+    risk_by_grade = cfg.get("risk", {}).get("risk_pct_by_grade", {})
     pool = sorted((i for i in ideas if i.score >= min_grade_score and not i.news_lock), key=rank, reverse=True)
     chosen: List[Idea] = []
 
+    from .risk import ev_gate_fails
+    rk_cfg = cfg.get("risk", {})
+    tradable = lambda x: not ev_gate_fails(x, rk_cfg) and (x.spread_r is None or x.spread_r <= 0.3)  # noqa: E731
+
     def ok(i: Idea) -> bool:
         exp, kinds, groups = {}, {}, {}
-        for c in chosen + [i]:
+        # Зөвхөн ажиглах (лот 0) санаа нь арилжаалах санааны валют/корреляцийн хязгаарыг эзлэхгүй
+        same = [c for c in chosen if tradable(c) == tradable(i)]
+        for c in same + [i]:
             for ccy, s in currencies(c, inst_by_symbol).items():
                 exp[(ccy, s)] = exp.get((ccy, s), 0) + 1
             kinds[c.kind] = kinds.get(c.kind, 0) + 1
@@ -426,16 +479,30 @@ def select(ideas: List[Idea], cfg: dict, inst_by_symbol: dict, corr: Optional[di
                 groups[g] = groups.get(g, 0) + 1
         if any(v > sel_cfg.get("max_same_currency_same_side", 2) for v in exp.values()):
             return False
+        # Валют бүрийн цэвэр эрсдэл (үнэлгээний төлөвлөсөн эрсдэлээр, %) ≤ max_usd_net_risk_pct
+        if ccy_cap:
+            net = {}
+            for c in same + [i]:
+                r = float(risk_by_grade.get(c.grade, 0.0))
+                for ccy, s in currencies(c, inst_by_symbol).items():
+                    net[ccy] = net.get(ccy, 0.0) + s * r
+            if any(abs(v) > ccy_cap + 1e-9 for v in net.values()):
+                return False
         if any(v > max_kind.get(k, n) for k, v in kinds.items()):
             return False
         if not all(v <= glim.get(g, glim.get("default", n)) for g, v in groups.items()):
             return False
         # Корреляцийн хөдөлгүүр: сонгосон санаатай өдрийн өгөөжөөр ижил чиглэлд хүчтэй хамааралтай бол давхар эрсдэл
+        # 60 ба 20 өдрийн корреляцийн аль муу нь (stress): max(ρ60, ρ20) × чиглэл
         if corr:
             si = 1 if i.side == "BUY" else -1
-            for c in chosen:
+            for c in same:
                 rho = corr.get((i.symbol, c.symbol))
-                if rho is not None and rho * si * (1 if c.side == "BUY" else -1) > sel_cfg.get("max_pair_correlation", 0.8):
+                if rho is None:
+                    continue
+                d = si * (1 if c.side == "BUY" else -1)
+                worst = max((x * d for x in (rho if isinstance(rho, (tuple, list)) else (rho,)) if x is not None), default=None)
+                if worst is not None and worst > sel_cfg.get("max_pair_correlation", 0.8):
                     return False
         return True
 

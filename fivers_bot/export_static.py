@@ -101,7 +101,7 @@ def export(out: str) -> dict:
         save("mode.json", json.dumps({"public": True, "static": True, "cooldown_min": 0, "auto_min": AUTO_MIN,
                                       "next_run_at": None, "exported_at": now.isoformat()}).encode())
         save("status.json", json.dumps({"running": False, "kind": None, "log": "", "code": None}).encode())
-        for ep in ("live", "performance", "views", "sources", "directory", "cbank"):
+        for ep in ("live", "performance", "views", "sources", "directory", "cbank", "macro"):
             code, body = get("/api/" + ep)
             if code == 200:
                 save(ep + ".json", body)
@@ -132,7 +132,8 @@ def export(out: str) -> dict:
     page = page.replace("<script>", SHIM + "<script>", 1)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(page)
-    for f in ("manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"):
+    for f in ("manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "favicon-64.png",
+              "brand-logo.webp", "lightweight-charts.standalone.production.js"):
         if os.path.exists(os.path.join(web.STATIC, f)):
             shutil.copy2(os.path.join(web.STATIC, f), out)
     with open(os.path.join(out, ".nojekyll"), "w") as fh:

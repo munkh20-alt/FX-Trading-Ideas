@@ -23,6 +23,9 @@ class NewsError(RuntimeError):
     pass
 
 
+STALE_MAX = 24 * 3600      # татаж чадаагүй үед кэшийг хамгийн ихдээ 24 цаг хэрэглэнэ
+
+
 def load(cache_dir: str, max_age: float = CACHE_SECONDS) -> List[dict]:
     """max_age — кэшийг хэдэн секунд хүртэл хэрэглэх (ForexFactory олон дуудлагыг хаадаг тул 300-аас бага бүү болго)."""
     os.makedirs(cache_dir, exist_ok=True)
@@ -38,6 +41,8 @@ def load(cache_dir: str, max_age: float = CACHE_SECONDS) -> List[dict]:
         except Exception as e:  # noqa: BLE001
             if not os.path.exists(path):
                 raise NewsError(f"ForexFactory календарь татаж чадсангүй: {e}") from e
+            if time.time() - os.path.getmtime(path) > STALE_MAX:     # өнгөрсөн долоо хоногийн мэдээг чимээгүй ашиглахгүй
+                raise NewsError(f"Календарийн кэш 24 цагаас илүү хуучирсан (татаж чадсангүй: {str(e)[:120]})") from e
     with open(path, encoding="utf-8") as fh:
         return parse(json.load(fh))
 

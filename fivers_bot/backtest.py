@@ -4,7 +4,8 @@ TP1 / SL-ийн аль нь түрүүлж цохигдсоныг шалгана
   python -m fivers_bot backtest        →  cache/backtest_samples.csv, calibration.json
 
 Хязгаарлалт: банк/шинжээч/COT/мэдээний оноо түүхэнд байхгүй тул зөвхөн техник + график оноог шалгана.
-Зардал: хэрэгсэл бүрийн бодит спред (UTC цагийн хуваариар), шимтгэл, барьсан шөнийн тоогоор своп (costs.py) —
+Зардал: хэрэгсэл бүрийн бодит спред (UTC цагийн хуваариар; MARKET-д + спредийн 25% гулсалт), шимтгэл, барьсан
+шөнийн тоогоор своп (Лхагва ×3; costs.trade_cost_r) —
 config-д лавлагаа байхгүй хэрэгсэлд COST_R (0.04R). Своп нь ОДООГИЙН хүүгээр (2022–23 онд өөр байсан).
 Нэг H1 лаанд SL ба TP хоёулаа байвал SL гэж үзнэ (консерватив).
 """
@@ -90,7 +91,7 @@ def run_instrument(inst: dict) -> list:
         if cp and "exit" in res:
             res.update(cm.trade_cost(cp, prof, 1 if i.side == "BUY" else -1, i.entry, abs(i.entry - i.stop),
                                      fwd.index[res["fill"]].hour,
-                                     float(clock[k0 + res["exit"]] - clock[k0 + res["fill"]])))
+                                     float(clock[k0 + res["exit"]] - clock[k0 + res["fill"]]), order_type=i.order_type))
             res["nights"] = float(clock[k0 + res["exit"]] - clock[k0 + res["fill"]])
         rows.append({"symbol": inst["symbol"], "kind": inst["type"], "time": str(close_time), "setup_name": i.setup,
                      "side": i.side, "order": i.order_type, "score": i.score, "rr": i.rr,
@@ -197,6 +198,9 @@ def calibrate(df: pd.DataFrame) -> dict:
     return {"created": pd.Timestamp.now(tz="UTC").isoformat(), "samples": int(len(df)), "resolved": int(len(res)),
             "period": [str(res.time.min())[:10], str(res.time.max())[:10]],
             "base_win_rate": round(float(res.win.mean()), 4), "avg_r": round(float(res.r.mean()), 3), "cost_r": COST_R,
+            # win = TP1-д хүрсэн (TIMEOUT-ийг ашигтай ч TP1 биш тул орхино); profit_rate = зардлын дараа ашигтай хаагдсан хувь
+            "profit_rate": round(float((res.r > 0).mean()), 4),
+            "timeout_profit_share": round(float((res[res.status == "TIMEOUT"].r > 0).mean()), 4) if (res.status == "TIMEOUT").any() else None,
             "costs": cost,
             # Алдагдалгүй байх хожлын хувь = L / (W + L): W, L — зардлын дараах дундаж хожил, алдагдал (R)
             "breakeven_win_rate": _breakeven(res),

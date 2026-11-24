@@ -40,7 +40,7 @@ NAME_RE = re.compile(r"^(ideas|synthetic)_\d{8}_\d{4}\.json$")
 PUBLIC_MODE = os.environ.get("FXBOT_PUBLIC") == "1"
 COOLDOWN_MIN = float(os.environ.get("FXBOT_COOLDOWN_MIN", "30"))
 AUTO_MIN = float(os.environ.get("FXBOT_AUTO_MIN", "60"))
-PRIVATE_GET = {"/api/journal", "/api/account", "/api/settings"}
+PRIVATE_GET = {"/api/journal", "/api/account", "/api/settings", "/api/trades"}
 PRIVATE_POST = {"/api/journal", "/api/settings", "/api/review"}
 
 _lock = threading.Lock()
@@ -141,7 +141,8 @@ TOKEN_FILE = os.path.join(HERE, "web_token.txt")
 COOKIE = "fxbot_session"
 SESSION_DAYS = 30
 MAX_FAILS, LOCK_S = 10, 600
-PUBLIC = {"/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/login"}
+PUBLIC = {"/manifest.webmanifest", "/icon.svg", "/icon-192.png", "/icon-512.png", "/apple-touch-icon.png", "/login",
+          "/favicon-64.png", "/brand-logo.webp"}
 _fails = {}            # IP → (тоо, анхны алдааны цаг)
 _fails_lock = threading.Lock()
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
@@ -256,11 +257,22 @@ def _live(force: bool, with_account: bool = True) -> dict:
                               "stale": bool(snap.get("stale"))}
         if snap.get("error"):
             out["account_error"] = snap["error"]
+    if out.get("account") and not out["account"].get("stale"):
+        try:
+            from . import storage
+            a = out["account"]
+            storage.log_equity(a, a.get("open_risk_usd"), a.get("positions", 0))
+        except Exception:  # noqa: BLE001
+            pass
     return out
+
+
+MAX_POST_BYTES = 65_536
 
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "fxbot"
+    timeout = 15                          # удаан/гацсан холболтыг 15 секундэд таслана (socket timeout)
     sys_version = ""
 
     def log_message(self, fmt, *a):  # чимээгүй
@@ -297,7 +309,12 @@ class Handler(BaseHTTPRequestHandler):
         src = self.headers.get("Origin") or self.headers.get("Referer")
         if not src:
             return True
-        return urlparse(src).netloc.lower() == (self.headers.get("Host") or "").lower()
+        host = (self.headers.get("Host") or "").lower()
+        try:
+            o = urlparse(src)
+        except ValueError:
+            return False
+        return bool(host) and o.scheme in ("http", "https") and o.netloc.lower() == host
 
     def _authed(self) -> bool:
         if not self._remote:
@@ -369,7 +386,8 @@ class Handler(BaseHTTPRequestHandler):
         q = parse_qs(u.query)
         static = {"/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
                   "/icon.svg": ("icon.svg", "image/svg+xml"), "/icon-192.png": ("icon-192.png", "image/png"),
-                  "/icon-512.png": ("icon-512.png", "image/png"), "/apple-touch-icon.png": ("icon-192.png", "image/png")}
+                  "/icon-512.png": ("icon-512.png", "image/png"), "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"), "/favicon-64.png": ("favicon-64.png", "image/png"), "/brand-logo.webp": ("brand-logo.webp", "image/webp"),
+                  "/lightweight-charts.standalone.production.js": ("lightweight-charts.standalone.production.js", "application/javascript; charset=utf-8")}
         if u.path in static:
             return self._static(*static[u.path])
         if u.path == "/login":
@@ -377,89 +395,8 @@ class Handler(BaseHTTPRequestHandler):
         if u.path in ("/", "/index.html"):
             with open(os.path.join(STATIC, "index.html"), "rb") as fh:
                 return self._send(200, fh.read(), "text/html; charset=utf-8")
-        if u.path == "/api/reports":
-            return self._send(200, _list_reports())
-        if u.path == "/api/report":
-            name = (q.get("file") or [""])[0]
-            if not name:
-                names = [n for n in _list_reports() if n.startswith("ideas_")] or _list_reports()
-                name = names[0] if names else ""
-            if not NAME_RE.match(name) or not os.path.exists(os.path.join(REPORTS, name)):
-                return self._send(404, {"error": "Тайлан олдсонгүй"})
-            with open(os.path.join(REPORTS, name), encoding="utf-8") as fh:
-                rep = json.load(fh)
-            rep["_file"] = name
-            return self._send(200, rep)
-        if u.path == "/api/mode":
-            pub = getattr(self.server, "public", False)
-            return self._send(200, {"public": pub, "cooldown_min": COOLDOWN_MIN if pub else 0, "auto_min": AUTO_MIN if pub else 0,
-                                    "next_run_at": datetime.fromtimestamp(next_run_at(), timezone.utc).isoformat() if pub else None})
-        if u.path == "/api/status":
-            with _lock:
-                return self._send(200, dict(_job))
-        if u.path == "/api/journal":
-            return self._send(200, _journal_payload())
-        if u.path == "/api/chart":
-            from . import market
-            from .data import DataError
-            sym, tf = (q.get("symbol") or [""])[0], (q.get("tf") or ["h4"])[0]
-            if not re.match(r"^[A-Z0-9]{3,10}$", sym) or tf not in ("d1", "h4", "h1"):
-                return self._send(400, {"error": "symbol/tf буруу"})
-            try:
-                return self._send(200, market.chart_payload(HERE, sym, tf))
-            except (DataError, ValueError) as e:
-                return self._send(502, {"error": f"График татаж чадсангүй: {e}"})
-        if u.path == "/api/performance":
-            out = {}
-            for key, name in (("calibration", "calibration.json"), ("research", "research_report.json")):
-                try:
-                    with open(os.path.join(HERE, name), encoding="utf-8") as fh:
-                        out[key] = json.load(fh)
-                except (OSError, ValueError):
-                    out[key] = None
-            return self._send(200, out)
-        if u.path == "/api/views":
-            from .consensus import source_tier
-            try:
-                with open(os.path.join(HERE, "views", "bank_views.json"), encoding="utf-8") as fh:
-                    views = json.load(fh).get("views", [])
-                with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
-                    tiers = json.load(fh).get("institutional", {}).get("source_tiers")
-            except (OSError, ValueError):
-                views, tiers = [], None
-            for v in views:
-                try:
-                    t = source_tier(v.get("source", ""), tiers)
-                    v["tier"] = t[0] if isinstance(t, (tuple, list)) else t
-                except Exception:  # noqa: BLE001
-                    v["tier"] = None
-            return self._send(200, sorted(views, key=lambda v: v.get("published", ""), reverse=True))
-        if u.path == "/api/sources":
-            from . import market
-            return self._send(200, market.sources(HERE))
-        if u.path == "/api/settings":
-            from . import market
-            return self._send(200, market.settings_get(HERE))
-        if u.path == "/api/directory":
-            try:
-                with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
-                    d = json.load(fh).get("institutional", {}).get("research_directory", [])
-            except (OSError, ValueError):
-                d = []
-            return self._send(200, [x for x in d if str(x.get("url", "")).startswith("https://")])
-        if u.path == "/api/live":             # «Мэдээлэл шинэчлэх»: MT5 данс + мэдээний календарь (санаа дахин гаргахгүй)
-            return self._send(200, _live(parse_qs(u.query).get("force", ["0"])[0] == "1",
-                                         with_account=not getattr(self.server, "public", False)))
-        if u.path == "/api/account":          # MT5 данс — зөвхөн уншина (30 сек кэш)
-            from . import account
-            with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
-                cfg = json.load(fh)
-            snap = account.load(HERE, max_age_s=30, cfg=cfg)
-            return self._send(200, snap or {"error": "MT5 данс уншиж чадсангүй"})
-        if u.path == "/api/cbank":
-            from . import cbank
-            return self._send(200, cbank.payload(HERE))
-        return self._send(404, {"error": "not found"})
+        code, payload = api_get(u.path, q, getattr(self.server, "public", False))
+        return self._send(code, payload)
 
     def do_POST(self):
         if not self._guard("POST"):
@@ -467,83 +404,194 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         if u.path == "/login":
             return self._login()
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0 or n > MAX_POST_BYTES:
+            return self._send(413, {"error": "Хүсэлт хэт том"})
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
         except ValueError:
             body = {}
-        if u.path == "/api/journal":
-            from . import journal as jr
+        code, payload = api_post(u.path, body, getattr(self.server, "public", False))
+        return self._send(code, payload)
+
+
+def _r(code, body):
+    return code, body
+
+
+def api_get(path: str, q: dict, public: bool = False):
+    """GET /api/* — (код, JSON). Хамгаалалт (Host, нэвтрэлт, нийтийн горимын хаалт)-ыг дуудагч сервер шалгана.
+    Стандарт сангийн сервер (Handler) ба ASGI сервер (asgi.py) хоёулаа үүнийг ашиглана."""
+    if path == "/api/reports":
+        return _r(200, _list_reports())
+    if path == "/api/report":
+        name = (q.get("file") or [""])[0]
+        if not name:
+            names = [n for n in _list_reports() if n.startswith("ideas_")] or _list_reports()
+            name = names[0] if names else ""
+        if not NAME_RE.match(name) or not os.path.exists(os.path.join(REPORTS, name)):
+            return _r(404, {"error": "Тайлан олдсонгүй"})
+        with open(os.path.join(REPORTS, name), encoding="utf-8") as fh:
+            rep = json.load(fh)
+        rep["_file"] = name
+        return _r(200, rep)
+    if path == "/api/mode":
+        pub = public
+        return _r(200, {"public": pub, "cooldown_min": COOLDOWN_MIN if pub else 0, "auto_min": AUTO_MIN if pub else 0,
+                                "next_run_at": datetime.fromtimestamp(next_run_at(), timezone.utc).isoformat() if pub else None})
+    if path == "/api/status":
+        with _lock:
+            return _r(200, dict(_job))
+    if path == "/api/journal":
+        return _r(200, _journal_payload())
+    if path == "/api/chart":
+        from . import market
+        from .data import DataError
+        sym, tf = (q.get("symbol") or [""])[0], (q.get("tf") or ["h4"])[0]
+        if not re.match(r"^[A-Z0-9]{3,10}$", sym) or tf not in ("d1", "h4", "h1"):
+            return _r(400, {"error": "symbol/tf буруу"})
+        try:
+            return _r(200, market.chart_payload(HERE, sym, tf))
+        except (DataError, ValueError) as e:
+            return _r(502, {"error": f"График татаж чадсангүй: {e}"})
+    if path == "/api/performance":
+        out = {}
+        for key, name in (("calibration", "calibration.json"), ("research", "research_report.json")):
             try:
-                act = body.get("action")
-                if act == "add":
-                    jr.add(HERE, body.get("entry") or {})
-                elif act == "update":
-                    jr.update(HERE, str(body.get("id")), body.get("entry") or {})
-                elif act == "delete":
-                    jr.delete(HERE, str(body.get("id")))
+                with open(os.path.join(HERE, name), encoding="utf-8") as fh:
+                    out[key] = json.load(fh)
+            except (OSError, ValueError):
+                out[key] = None
+        return _r(200, out)
+    if path == "/api/views":
+        from .consensus import source_tier
+        try:
+            with open(os.path.join(HERE, "views", "bank_views.json"), encoding="utf-8") as fh:
+                views = json.load(fh).get("views", [])
+            with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
+                tiers = json.load(fh).get("institutional", {}).get("source_tiers")
+        except (OSError, ValueError):
+            views, tiers = [], None
+        for v in views:
+            try:
+                t = source_tier(v.get("source", ""), tiers)
+                v["tier"] = t[0] if isinstance(t, (tuple, list)) else t
+            except Exception:  # noqa: BLE001
+                v["tier"] = None
+        return _r(200, sorted(views, key=lambda v: v.get("published", ""), reverse=True))
+    if path == "/api/sources":
+        from . import market
+        return _r(200, market.sources(HERE))
+    if path == "/api/settings":
+        from . import market
+        return _r(200, market.settings_get(HERE))
+    if path == "/api/directory":
+        try:
+            with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
+                d = json.load(fh).get("institutional", {}).get("research_directory", [])
+        except (OSError, ValueError):
+            d = []
+        return _r(200, [x for x in d if str(x.get("url", "")).startswith("https://")])
+    if path == "/api/live":             # «Мэдээлэл шинэчлэх»: MT5 данс + мэдээний календарь (санаа дахин гаргахгүй)
+        return _r(200, _live(q.get("force", ["0"])[0] == "1",
+                                     with_account=not public))
+    if path == "/api/account":          # MT5 данс — зөвхөн уншина (30 сек кэш)
+        from . import account
+        with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        snap = account.load(HERE, max_age_s=30, cfg=cfg)
+        return _r(200, snap or {"error": "MT5 данс уншиж чадсангүй"})
+    if path == "/api/trades":            # нээлттэй арилжаа/захиалга: TP/SL pip, USD, TP хүрэх хугацаа (зөвхөн унших)
+        from . import positions
+        with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        return _r(200, positions.payload(HERE, cfg, force=(q.get("force") or ["0"])[0] == "1"))
+    if path == "/api/macro":            # макро, эдийн засгийн сюрприз, мэдээний сентимент (мэдээлэл)
+        from . import market
+        return _r(200, market.macro_payload(HERE, force=(q.get("force") or ["0"])[0] == "1"))
+    if path == "/api/cbank":
+        from . import cbank
+        return _r(200, cbank.payload(HERE))
+    return 404, {"error": "not found"}
+
+
+def api_post(path: str, body: dict, public: bool = False):
+    """POST /api/* — (код, JSON)."""
+    if path == "/api/journal":
+        from . import journal as jr
+        try:
+            act = body.get("action")
+            if act == "add":
+                jr.add(HERE, body.get("entry") or {})
+            elif act == "update":
+                jr.update(HERE, str(body.get("id")), body.get("entry") or {})
+            elif act == "delete":
+                jr.delete(HERE, str(body.get("id")))
+            else:
+                return _r(400, {"error": "action буруу"})
+        except (ValueError, TypeError, KeyError) as e:
+            return _r(400, {"error": f"Журнал: {e}"})
+        return _r(200, _journal_payload())
+    if path == "/api/settings":
+        from . import data as dm
+        from . import market
+        try:
+            out = market.settings_set(HERE, body.get("changes") or {})
+        except (ValueError, TypeError, KeyError) as e:
+            return _r(400, {"error": f"Тохиргоо: {e}"})
+        dm.reload_config()
+        return _r(200, out)
+    if path == "/api/run" and public:
+        wait = next_run_at() - time.time()
+        if wait > 0:
+            return _r(429, {"started": False, "wait_s": int(wait),
+                                    "error": f"Дараагийн шинжилгээг {int(wait // 60) + 1} минутын дараа эхлүүлж болно"})
+        ok = _start("ideas", [])                       # нийтийн горимд баланс/туршилтын сонголт хүлээн авахгүй
+        return _r(202 if ok else 409, {"started": ok})
+    if path == "/api/run":
+        args = []
+        bal = body.get("balance")
+        if bal:
+            try:
+                args += ["--balance", str(float(bal))]
+            except (TypeError, ValueError):
+                return _r(400, {"error": "Баланс буруу"})
+        if body.get("synthetic"):
+            args.append("--synthetic")
+        ok = _start("ideas", args)
+        return _r(202 if ok else 409, {"started": ok})
+    if path == "/api/scenario":
+        from .backtest import load_calibration
+        from .research import load_target_curve
+        from .scenario import recalc
+        name = body.get("file") or ""
+        if not NAME_RE.match(name) or not os.path.exists(os.path.join(REPORTS, name)):
+            return _r(404, {"error": "Тайлан олдсонгүй"})
+        try:
+            with open(os.path.join(REPORTS, name), encoding="utf-8") as fh:
+                rep = json.load(fh)
+            with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
+                cfg = json.load(fh)
+            st = {k: body.get(k) for k in ("balance", "total_risk_pct", "risk_per_trade_pct", "min_tp_pips", "min_rr", "tp_mode")}
+            for k in ("balance", "total_risk_pct", "risk_per_trade_pct", "min_tp_pips", "min_rr"):
+                if st[k] not in (None, ""):
+                    st[k] = float(st[k])
+                    if st[k] < 0 or st[k] != st[k]:
+                        return _r(400, {"error": f"{k} буруу утга"})
                 else:
-                    return self._send(400, {"error": "action буруу"})
-            except (ValueError, TypeError, KeyError) as e:
-                return self._send(400, {"error": f"Журнал: {e}"})
-            return self._send(200, _journal_payload())
-        if u.path == "/api/settings":
-            from . import data as dm
-            from . import market
-            try:
-                out = market.settings_set(HERE, body.get("changes") or {})
-            except (ValueError, TypeError, KeyError) as e:
-                return self._send(400, {"error": f"Тохиргоо: {e}"})
-            dm.reload_config()
-            return self._send(200, out)
-        if u.path == "/api/run" and getattr(self.server, "public", False):
-            wait = next_run_at() - time.time()
-            if wait > 0:
-                return self._send(429, {"started": False, "wait_s": int(wait),
-                                        "error": f"Дараагийн шинжилгээг {int(wait // 60) + 1} минутын дараа эхлүүлж болно"})
-            ok = _start("ideas", [])                       # нийтийн горимд баланс/туршилтын сонголт хүлээн авахгүй
-            return self._send(202 if ok else 409, {"started": ok})
-        if u.path == "/api/run":
-            args = []
-            bal = body.get("balance")
-            if bal:
-                try:
-                    args += ["--balance", str(float(bal))]
-                except (TypeError, ValueError):
-                    return self._send(400, {"error": "Баланс буруу"})
-            if body.get("synthetic"):
-                args.append("--synthetic")
-            ok = _start("ideas", args)
-            return self._send(202 if ok else 409, {"started": ok})
-        if u.path == "/api/scenario":
-            from .backtest import load_calibration
-            from .research import load_target_curve
-            from .scenario import recalc
-            name = body.get("file") or ""
-            if not NAME_RE.match(name) or not os.path.exists(os.path.join(REPORTS, name)):
-                return self._send(404, {"error": "Тайлан олдсонгүй"})
-            try:
-                with open(os.path.join(REPORTS, name), encoding="utf-8") as fh:
-                    rep = json.load(fh)
-                with open(os.path.join(HERE, "config.json"), encoding="utf-8") as fh:
-                    cfg = json.load(fh)
-                st = {k: body.get(k) for k in ("balance", "total_risk_pct", "risk_per_trade_pct", "min_tp_pips", "min_rr", "tp_mode")}
-                for k in ("balance", "total_risk_pct", "risk_per_trade_pct", "min_tp_pips", "min_rr"):
-                    if st[k] not in (None, ""):
-                        st[k] = float(st[k])
-                        if st[k] < 0 or st[k] != st[k]:
-                            return self._send(400, {"error": f"{k} буруу утга"})
-                    else:
-                        st[k] = None
-                if st["tp_mode"] not in ("extend", "filter"):
-                    st["tp_mode"] = "extend"
-                return self._send(200, recalc(rep, cfg, st, load_calibration(HERE), load_target_curve(HERE)))
-            except (ValueError, TypeError, KeyError) as e:
-                return self._send(400, {"error": f"Тооцоолж чадсангүй: {e}"})
-        if u.path == "/api/review":
-            ok = _start("review", [])
-            return self._send(202 if ok else 409, {"started": ok})
-        return self._send(404, {"error": "not found"})
+                    st[k] = None
+            if st["tp_mode"] not in ("extend", "filter"):
+                st["tp_mode"] = "extend"
+            return _r(200, recalc(rep, cfg, st, load_calibration(HERE), load_target_curve(HERE)))
+        except (ValueError, TypeError, KeyError) as e:
+            return _r(400, {"error": f"Тооцоолж чадсангүй: {e}"})
+    if path == "/api/review":
+        ok = _start("review", [])
+        return _r(202 if ok else 409, {"started": ok})
+    return 404, {"error": "not found"}
 
 
 def make_server(host: str, port: int, token=None) -> ThreadingHTTPServer:

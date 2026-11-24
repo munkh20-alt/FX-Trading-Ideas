@@ -266,6 +266,12 @@ def return_correlation(d1_by_symbol: Dict[str, pd.DataFrame], days: int = 60, mi
     return out
 
 
+def stress_correlation(d1_by_symbol: Dict[str, pd.DataFrame]) -> dict:
+    """{(a, b): (ρ60, ρ20)} — select() хоёулангийнх нь муу талыг (max) шалгана."""
+    c60, c20 = return_correlation(d1_by_symbol, 60, 30), return_correlation(d1_by_symbol, 20, 15)
+    return {k: (c60.get(k), c20.get(k)) for k in set(c60) | set(c20)}
+
+
 def currency_strength(d1_by_pair: Dict[str, pd.DataFrame]) -> Dict[str, float]:
     """Форекс хосуудын 5 ба 20 өдрийн өгөөжөөс валют бүрийн харьцангуй хүч (−1…+1).
     d1_by_pair: {'EURUSD': D1 dataframe}."""

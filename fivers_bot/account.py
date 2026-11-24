@@ -107,6 +107,38 @@ def stats(trades: list) -> dict:
             "by_symbol": {k: round(v, 2) for k, v in sorted(by_sym.items(), key=lambda kv: kv[1])}}
 
 
+MIDNIGHT_FILE = "fxbot_midnight_equity.csv"
+
+
+def midnight_equity(server_date: str, path: Optional[str] = None, db_path: Optional[str] = None) -> Optional[dict]:
+    """FxBotCalendar service-ийн бүртгэлээс тухайн серверийн өдрийн 00:00 үеийн {balance, equity}.
+    start_flag = 1 (service өдрийн дундаас эхэлсэн) мөрийг шөнө дундын утга гэж ҮЗЭХГҮЙ."""
+    from .econcal import MT5_FILE, read_text
+    path = path or os.path.join(os.path.dirname(MT5_FILE), MIDNIGHT_FILE)
+    rows = []
+    if os.path.exists(path):
+        for line in read_text(path).splitlines():
+            parts = line.strip().split(",")
+            if len(parts) < 5 or parts[4].strip() != "0":
+                continue
+            try:
+                rows.append({"server_date": parts[0], "balance": float(parts[1]), "equity": float(parts[2]),
+                             "utc": int(parts[3])})
+            except ValueError:
+                continue
+    try:                                   # SQLite-д хуримтлуулна (CSV устсан/эргэсэн ч түүх үлдэнэ)
+        from . import storage
+        if rows:
+            storage.upsert_midnight(rows, db_path)
+        got = storage.get_midnight(server_date, db_path)
+        if got:
+            return {"balance": got["balance"], "equity": got["equity"], "utc": got["recorded_utc"]}
+    except Exception:  # noqa: BLE001 — сан ашиглах боломжгүй бол CSV-ээс шууд
+        pass
+    hit = [r for r in rows if r["server_date"] == server_date]
+    return {k: hit[-1][k] for k in ("balance", "equity", "utc")} if hit else None
+
+
 def rules(acc: dict, initial: Optional[float], prev_day_balance: float, cfg_acc: dict) -> dict:
     """5ers-ийн дүрэм хүртэлх зай: өдрийн алдагдал (өдрийн эхний баланс/equity-ийн их нь × хувь), нийт алдагдал
     (анхны баланс × хувь), ашгийн зорилт."""
@@ -157,12 +189,17 @@ def snapshot(cfg: dict, now: Optional[datetime] = None, mt5=None) -> dict:
             calc = mt5.order_calc_profit(p["type"], p["symbol"], p["volume"], p["price_current"], p["sl"])
             if calc is not None:
                 risk_now = round(-float(calc), 2)
+        at_tp = None
+        if p.get("tp"):                   # TP-д хүрвэл орох үнээс тооцсон ашиг (своп, шимтгэлгүй) — order_calc_profit: тооцоо л
+            calc = mt5.order_calc_profit(p["type"], p["symbol"], p["volume"], p["price_open"], p["tp"])
+            at_tp = round(float(calc), 2) if calc is not None else None
         positions.append({"ticket": p["ticket"], "symbol": p["symbol"], "side": side, "volume": p["volume"],
                           "open_time": _deal_utc(p["time"], off).isoformat(), "open_price": round(p["price_open"], 6),
                           "price": round(p["price_current"], 6), "sl": round(p["sl"], 6) if p.get("sl") else None,
                           "tp": round(p["tp"], 6) if p.get("tp") else None,
                           "profit": round(p["profit"], 2), "swap": round(p.get("swap", 0.0), 2),
-                          "risk_to_sl": risk, "risk_now": risk_now, "comment": str(p.get("comment", ""))[:40]})
+                          "risk_to_sl": risk, "risk_now": risk_now, "profit_at_tp": at_tp,
+                          "comment": str(p.get("comment", ""))[:40]})
     orders = []
     for o in (mt5.orders_get() or []):
         o = _to_dict(o)
@@ -172,9 +209,15 @@ def snapshot(cfg: dict, now: Optional[datetime] = None, mt5=None) -> dict:
             calc = mt5.order_calc_profit(0 if o["type"] in (2, 4) else 1, o["symbol"], o["volume_current"],
                                          o["price_open"], o["sl"])
             risk = round(-float(calc), 2) if calc is not None else None
+        at_tp = None
+        if o.get("tp") and o["type"] in (2, 3, 4, 5):
+            calc = mt5.order_calc_profit(0 if o["type"] in (2, 4) else 1, o["symbol"], o["volume_current"],
+                                         o["price_open"], o["tp"])
+            at_tp = round(float(calc), 2) if calc is not None else None
         orders.append({"ticket": o["ticket"], "symbol": o["symbol"], "type": kind, "volume": o["volume_current"],
                        "price": round(o["price_open"], 6), "sl": round(o["sl"], 6) if o.get("sl") else None,
-                       "tp": round(o["tp"], 6) if o.get("tp") else None, "risk_to_sl": risk})
+                       "tp": round(o["tp"], 6) if o.get("tp") else None, "risk_to_sl": risk, "profit_at_tp": at_tp,
+                       "open_time": _deal_utc(o["time_setup"], off).isoformat() if o.get("time_setup") else None})
 
     frm = datetime.now() - timedelta(days=HISTORY_DAYS)
     raw = mt5.history_deals_get(frm, datetime.now() + timedelta(days=2)) or []
@@ -209,6 +252,14 @@ def snapshot(cfg: dict, now: Optional[datetime] = None, mt5=None) -> dict:
            "margin_level": round(a["margin_level"], 1) if a.get("margin_level") else None,
            "floating": floating, "closed_today": closed_today, "day_pnl": round(closed_today + floating, 2),
            "prev_day_balance": prev_day_balance, "prev_day_equity": None}
+    # 5ers өдрийн хязгаар = max(өмнөх өдрийн хаалтын баланс, equity). Equity-г FxBotCalendar service серверийн 00:00-д бичнэ.
+    me = midnight_equity((day0 + timedelta(hours=off)).strftime("%Y-%m-%d"))
+    if me:
+        acc["prev_day_equity"] = me["equity"]
+        acc["prev_day_equity_source"] = "MT5 service (серверийн 00:00)"
+    else:
+        acc["prev_day_equity_source"] = ("бүртгэл алга — FxBotCalendar service v1.20 өнөө шөнө дундаас бүртгэнэ; "
+                                         "зөвхөн балансаар тооцов")
     open_risk = [x["risk_now"] for x in positions if x["risk_now"] is not None] + \
         [x["risk_to_sl"] for x in orders if x["risk_to_sl"] is not None]
     no_sl = [x["symbol"] for x in positions if not x["sl"]] + [f'{x["symbol"]} ({x["type"]})' for x in orders if not x["sl"]]
@@ -419,6 +470,10 @@ def apply_to_config(cfg: dict, snap: dict) -> None:
     acc["balance"] = a["balance"]
     acc["prev_day_balance"] = a["prev_day_balance"]
     acc["day_pnl_usd"] = a["day_pnl"]
+    acc["equity"] = a.get("equity")
+    acc["prev_day_equity"] = a.get("prev_day_equity")
+    acc["free_margin"] = a.get("free_margin")
+    acc["leverage"] = a.get("leverage")
     acc["existing_open_risk_usd"] = snap.get("open_risk_usd", 0.0)
     acc["open_symbols"] = sorted({p["symbol"] for p in snap["positions"]} | {o["symbol"] for o in snap["orders"]})
     acc["initial_balance"] = snap["rules"]["initial_balance"]

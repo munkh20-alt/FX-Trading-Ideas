@@ -115,12 +115,15 @@ def capped(res: dict, cp: dict, prof, side: int, idea, HI, LO, CL, hour: int, cl
         if len(over):
             j = f + 1 + int(over[0])            # энэ лааны эхэнд хязгаараас хэтэрнэ → өмнөх лааны хаалтаар хаана
             r2 = outcomes(side, idea.entry, idea.stop, idea.order_type, HI[k:k + j], LO[k:k + j], CL[k:k + j], force_end=True)
-            c2 = rule_costs(r2, cp, prof, side, idea.entry, abs(idea.entry - idea.stop), hour, clock, k) if r2 else {}
+            c2 = rule_costs(r2, cp, prof, side, idea.entry, abs(idea.entry - idea.stop), hour, clock, k,
+                            idea.order_type) if r2 else {}
         else:
-            r2, c2 = res, rule_costs(res, cp, prof, side, idea.entry, abs(idea.entry - idea.stop), hour, clock, k)
+            r2, c2 = res, rule_costs(res, cp, prof, side, idea.entry, abs(idea.entry - idea.stop), hour, clock, k,
+                                     idea.order_type)
         for r in RULES:
             out[f"{r}_n{cap}"] = r2.get(r)
             out[f"c_{r}_n{cap}"] = c2.get("c_" + r)
+        out[f"_xi_t2_n{cap}"] = r2.get("_x_t2")          # портфолио backtest-д: гарсан лаа (k-аас)
     return out
 
 
@@ -139,12 +142,13 @@ def hold_cap_table(df: pd.DataFrame, parts: dict, weeks: pd.Series) -> dict:
     return out
 
 
-def rule_costs(res: dict, cp: dict, prof, side: int, entry: float, dist: float, hour: int, clock, k: int) -> dict:
+def rule_costs(res: dict, cp: dict, prof, side: int, entry: float, dist: float, hour: int, clock, k: int,
+               order: str = None) -> dict:
     """Дүрэм бүрийн зардал (R): спред+гулсалт+шимтгэл нэг удаа, своп — тухайн дүрмээр барьсан шөнийн тоогоор."""
     from . import costs as cm
     f = res["_fill"]
     nights = lambda x: float(clock[k + x] - clock[k + f])  # noqa: E731
-    base = cm.trade_cost(cp, prof, side, entry, dist, hour, 0.0)
+    base = cm.trade_cost(cp, prof, side, entry, dist, hour, 0.0, order_type=order)
     per_night = -cp["swap_rel"][side] * entry / dist
     out = {"spread_r": round(base["spread_r"], 5), "comm_r": round(base["comm_r"], 5), "swap_night_r": round(per_night, 5)}
     for r in RULES:
@@ -199,14 +203,27 @@ def run_instrument(inst: dict) -> list:
             side = 1 if i.side == "BUY" else -1
             res = outcomes(side, i.entry, i.stop, i.order_type, HI[k:], LO[k:], CL[k:])
             if not res:
+                # Биелээгүй LIMIT: портфолио backtest хүлээгдэх хугацаанд эрсдэлийн төсвийг эзэлдэг тул хадгална
+                # (research-ийн статистикт орохгүй — analyze() эдгээрийг хасна)
+                if i.order_type != "MARKET" and len(h1_idx) > k + PENDING:
+                    rows.append({"symbol": inst["symbol"], "kind": inst["type"], "time": str(close_time), "unfilled": True,
+                                 "setup": i.setup + ("_LMT" if i.setup == "PULLBACK" else ""), "order": i.order_type,
+                                 "side": side, "score": i.score, "best": i is best, "kind_rr": i.rr,
+                                 "expire_time": str(h1_idx[k + PENDING - 1])})
                 continue
             hour = h1_idx[k + res["_fill"]].hour
-            cost = rule_costs(res, cp, prof, side, i.entry, abs(i.entry - i.stop), hour, clock, k) if cp else {}
+            cost = rule_costs(res, cp, prof, side, i.entry, abs(i.entry - i.stop), hour, clock, k, i.order_type) if cp else {}
             if cp:
                 cost.update(capped(res, cp, prof, side, i, HI, LO, CL, hour, clock, k))
-            rows.append({**cost, "symbol": inst["symbol"], "kind": inst["type"], "time": str(close_time),
+            tm = {"fill_time": str(h1_idx[k + res["_fill"]])}
+            for nm, xi in (("x_t2", res.get("_x_t2")), ("x_t2_n0", cost.pop("_xi_t2_n0", None)),
+                           ("x_t2_n1", cost.pop("_xi_t2_n1", None))):
+                tm[nm] = str(h1_idx[k + xi]) if xi is not None and k + xi < len(h1_idx) else None
+            for c in [c for c in cost if c.startswith("_xi_")]:
+                cost.pop(c)
+            rows.append({**cost, **tm, "symbol": inst["symbol"], "kind": inst["type"], "time": str(close_time),
                          "setup": i.setup + ("_LMT" if i.setup == "PULLBACK" and i.order_type == "LIMIT" else ""),
-                         "side": side, "score": i.score, "best": i is best, "hour": close_time.hour,
+                         "order": i.order_type, "side": side, "score": i.score, "best": i is best, "hour": close_time.hour,
                          "dow": close_time.dayofweek, **feats, "chart": i.breakdown.get("chart", 0),
                          "rr_pts": i.breakdown.get("rr", 0), "kind_rr": i.rr,
                          **{r: res.get(r) for r in dict.fromkeys(RULES + tuple(n for n, _ in CURVE))}})
@@ -406,6 +423,162 @@ def add_cross(df: pd.DataFrame, insts: list, root: str) -> pd.DataFrame:
     return df
 
 
+V2_COLS = ("surprise_diff", "y2_spread", "y2_chg_20d", "real_yield_10y", "real_yield_10y_chg_20d", "real10_al",
+           "vix_level", "vix_regime")
+SAFE_HAVEN = ("JPY", "CHF", "USD")
+
+
+PREREG = ("эдийн засгийн сюрприз нийцсэн (>0.5)", "эдийн засгийн сюрприз эсрэг (<−0.5)", "2Y хүүний зөрүү тэлж буй (20 хоног)",
+          "LIMIT + сюрприз нийцсэн (>0.5) + 2Y зөрүү тэлж буй", "металл + АНУ-ын бодит хүү буурч буй (20 хоног)",
+          "VIX>25 + аюулгүй валют (JPY/CHF/USD) худалдан авах", "VIX>25 + аюулгүй валютын эсрэг", "VIX>25 + индекс BUY",
+          "VIX>25 + индекс SELL")
+
+
+SEG_RULES = ("t2", "t2_n0", "be3", "be3_n0")
+
+
+def segment_table(df: pd.DataFrame, parts: dict, weeks: pd.Series) -> dict:
+    """{"<төрөл>|<захиалга>|<дүрэм>": {train, valid, test, all}} — зардлын дараах R (df-д зардал аль хэдийн хасагдсан),
+    шилдэг санаагаар (амьд ботын сонголттой ижил). Live EV (барих хугацааны хязгаартай профайл)-д ашиглана."""
+    if "order" not in df:
+        return {}
+    b = df.best.astype(bool) if "best" in df else pd.Series(True, index=df.index)
+    out = {}
+    for k in sorted(df.kind.unique()):
+        for o in ("LIMIT", "MARKET"):
+            m = b & (df.kind == k) & (df.order == o)
+            for r in SEG_RULES:
+                if r not in df:
+                    continue
+                y = df[r] - (df["c_" + r].fillna(COST_R) if "c_" + r in df and r.endswith("_n0") else 0.0)
+                out[f"{k}|{o}|{r}"] = {p: _stat(y[m & pm], weeks) for p, pm in parts.items()} | {"all": _stat(y[m], weeks)}
+    return out
+
+
+ORTHO = {"forex": ["mom_12m", "mom_1m", "carry", "y2_spread", "y2_chg_20d", "atr_ratio", "surprise_diff", "spread_r", "swap_night_r"],
+         "metal": ["mom_12m", "mom_3m", "real_yield_10y", "real_yield_10y_chg_20d", "gvz", "dxy_al", "atr_ratio", "swap_night_r"],
+         "index": ["mom_12m", "mom_1m", "eq_al", "vix_level", "atr_ratio", "spread_r", "swap_night_r"]}
+
+
+def kind_models(df: pd.DataFrame, parts: dict, rule: str = "t2") -> dict:
+    """Төрөл бүрт тусдаа, цөөн (ортогональ) шинж чанартай L2-логистик загвар: сургалтад сургаж, баталгаажуулалтад
+    isotonic-оор калибрлаж, шалгалтад P(цэвэр R > 0)-ийн Brier Skill Score. Мэдээлэл — эерэг BSS гарвал л ашиглах."""
+    try:
+        from sklearn.isotonic import IsotonicRegression
+        from sklearn.linear_model import LogisticRegression
+    except ImportError:
+        return {"error": "scikit-learn суугаагүй"}
+    out = {}
+    for k, feats in ORTHO.items():
+        cols = [c for c in feats if c in df]
+        m = (df.kind == k) & df[rule].notna()
+        tr, va, te = (m & parts[p] for p in ("train", "valid", "test"))
+        if tr.sum() < 300 or va.sum() < 100 or te.sum() < 100 or not cols:
+            out[k] = {"error": "өгөгдөл хүрэлцэхгүй"}
+            continue
+        X = df[cols].astype(float)
+        med = X[tr].median()
+        X = X.fillna(med).fillna(0.0)
+        mu, sd = X[tr].mean(), X[tr].std().replace(0, 1.0)
+        Z = (X - mu) / sd
+        y = (df[rule] > 0).astype(int)
+        lr = LogisticRegression(C=0.1, max_iter=500).fit(Z[tr], y[tr])
+        iso = IsotonicRegression(out_of_bounds="clip").fit(lr.predict_proba(Z[va])[:, 1], y[va])
+        p = iso.predict(lr.predict_proba(Z[te])[:, 1])
+        base = float(y[tr].mean())
+        bm, bb = float(np.mean((p - y[te]) ** 2)), float(np.mean((base - y[te]) ** 2))
+        out[k] = {"features": cols, "n_test": int(te.sum()), "brier_model": round(bm, 5), "brier_base": round(bb, 5),
+                  "bss": round(1 - bm / bb, 4) if bb > 0 else None,
+                  "coef": {c: round(float(v), 3) for c, v in zip(cols, lr.coef_[0])}}
+    return out
+
+
+def safe_haven_side(symbol: str, kind: str) -> int:
+    """+1 = BUY нь аюулгүй валютыг (JPY/CHF/USD) эрсдэлтэй валютын эсрэг худалдаж авна, −1 = эсрэгээр, 0 = хамаагүй."""
+    if kind != "forex" or len(symbol) < 6:
+        return 0
+    b, q = symbol[:3] in SAFE_HAVEN, symbol[3:6] in SAFE_HAVEN
+    return 1 if b and not q else -1 if q and not b else 0
+
+
+def add_v2(df: pd.DataFrame, insts: list, root: str) -> pd.DataFrame:
+    """macro v2 + эдийн засгийн сюрприз (өмнөх мэдээлэл л — ирээдүй рүү харахгүй):
+    surprise_diff = (суурь − үнийн валютын ESI) × side, мөрийн цагаас ӨМНӨХ мэдээгээр (металл: −USD ESI)
+    y2_spread / y2_chg_20d = 2 жилийн хүүний зөрүү ба 20 өдрийн өөрчлөлт × side (форекс; USD/EUR 2Y, бусад — бодлогын хүү)
+    real_yield_10y, real_yield_10y_chg_20d = АНУ-ын 10 жилийн бодит хүү (FRED DFII10), real10_al = −chg × side (металл)
+    vix_level, vix_regime (0: <15, 1: 15–25, 2: >25) — FRED VIXCLS, өмнөх өдрийн утга."""
+    from . import econcal, macro, surprise
+    for c in V2_COLS:
+        df[c] = np.nan
+    t = pd.to_datetime(df.time, utc=True)
+    days = pd.DatetimeIndex(t.dt.normalize())
+    side = df.side.to_numpy(float)
+    # ---- эдийн засгийн сюрприз
+    sc = surprise.score(econcal.load_archive(os.path.join(root, "cache")))
+    if len(sc):
+        times = pd.DatetimeIndex(t)
+        esi = {c: surprise.esi_at(sc, c, times) for c in surprise.CCYS}
+        b = np.full(len(df), np.nan)
+        q = np.full(len(df), np.nan)
+        pair = np.zeros(len(df), bool)
+        for n, sym in enumerate(df.symbol):
+            base, quote = surprise.legs(sym)
+            pair[n] = base is not None
+            if base:
+                b[n] = esi[base][n]
+            if quote:
+                q[n] = esi[quote][n]
+        metal = df.symbol.str[:3].isin(["XAU", "XAG", "XPT", "XPD"]).to_numpy()
+        # pair_surprise()-тэй ижил: нэг талын ESI алга бол 0 гэж үзнэ, хоёулаа алга бол NaN
+        both_nan = np.isnan(b) & np.isnan(q)
+        diff = np.where(pair & ~both_nan, np.nan_to_num(b) - np.nan_to_num(q), np.where(metal, -q, np.nan))
+        df["surprise_diff"] = diff * side
+    # ---- хүү, бодит хүү, VIX
+    mx, _ = macro.macro_series(root)
+    if mx is None:
+        return df
+
+    def prior(s: pd.Series) -> np.ndarray:
+        s = s.dropna()
+        s = s[~s.index.duplicated(keep="last")].sort_index()
+        pos = s.index.searchsorted(days, side="left") - 1
+        return np.where(pos >= 0, s.to_numpy()[np.clip(pos, 0, None)], np.nan)
+
+    if "DFII10" in mx:
+        ry = mx["DFII10"].dropna()
+        df["real_yield_10y"] = prior(ry)
+        df["real_yield_10y_chg_20d"] = prior(ry - ry.shift(macro.Y2_CHG))
+        gold = df.symbol.str[:3].isin(["XAU", "XAG", "XPT", "XPD"]).to_numpy()
+        df["real10_al"] = np.where(gold, -df["real_yield_10y_chg_20d"] * side, np.nan)
+    if "VIXCLS" in mx:
+        v = prior(mx["VIXCLS"])
+        df["vix_level"] = v
+        df["vix_regime"] = np.where(np.isnan(v), np.nan, np.where(v < 15, 0, np.where(v <= 25, 1, 2)))
+    pol = macro.policy_rates(root)
+    for inst in insts:
+        if inst["type"] != "forex":
+            continue
+        idx = np.flatnonzero((df.symbol == inst["symbol"]).to_numpy())
+        if not len(idx):
+            continue
+        b, q = inst["symbol"][:3], inst["symbol"][3:6]
+        # macro.y2_spread-тэй ижил: хоёр талд 2Y байвал 2Y, үгүй бол хоёр талд бодлогын хүү (холихгүй)
+        if all(macro.Y2_SERIES.get(c) in mx for c in (b, q)):
+            legs = [mx[macro.Y2_SERIES[c]].dropna() for c in (b, q)]
+        elif pol is not None and b in pol and q in pol:
+            legs = [pol[c].dropna() for c in (b, q)]
+        else:
+            continue
+        u = legs[0].index.union(legs[1].index)
+        spread = (legs[0].reindex(u).ffill() - legs[1].reindex(u).ffill()).dropna()
+        spread = spread[~spread.index.duplicated(keep="last")]
+        sp_prior = prior(spread)[idx]
+        ch_prior = prior(spread - spread.shift(macro.Y2_CHG))[idx]
+        df.iloc[idx, df.columns.get_loc("y2_spread")] = sp_prior * side[idx]
+        df.iloc[idx, df.columns.get_loc("y2_chg_20d")] = ch_prior * side[idx]
+    return df
+
+
 def fit_model(df: pd.DataFrame, parts: dict, weeks: pd.Series, rule: str = "t2", deduct: float = COST_R) -> dict:
     """Бүх шинж чанарыг ХАМТАД нь ашигласан мета-загвар (gradient boosting). Сургалтын хэсэгт сургаж,
     баталгаажуулалтын хэсэгт босго (таамагласан R-ийн дээд 20%) тогтоож, шалгалтын хэсэгт л үнэлнэ."""
@@ -419,7 +592,7 @@ def fit_model(df: pd.DataFrame, parts: dict, weeks: pd.Series, rule: str = "t2",
     for c in ("sweep", "bos"):
         if c in df:
             X[c + "_al"] = df[c] * df.side
-    for c in MACRO_COLS + US_COLS + tuple(x for x in CROSS_COLS if x in df):
+    for c in MACRO_COLS + US_COLS + tuple(x for x in CROSS_COLS if x in df) + V2_COLS:
         if c in df:
             X[c] = df[c]
     X = pd.concat([X, pd.get_dummies(df.setup, prefix="s", dtype=float), pd.get_dummies(df.kind, prefix="k", dtype=float)], axis=1)
@@ -437,8 +610,40 @@ def fit_model(df: pd.DataFrame, parts: dict, weeks: pd.Series, rule: str = "t2",
     rank = float(pred[te].corr(y[te], method="spearman"))
     robust = bool((st_va["avg"] or 0) > 0 and st_te["n"] >= 100 and (st_te["avg"] or 0) - deduct > 0
                   and (st_te["avg"] or 0) > 2 * (st_te["se"] or 9))
+    # Шинж чанарын ач холбогдол (баталгаажуулалтын хэсэгт permutation) ба ялалтын магадлалын OOS Brier Skill Score
+    imp = {}
+    try:
+        from sklearn.inspection import permutation_importance
+        Xv, yv = X[va], y[va]
+        if len(Xv) > 4000:
+            Xv, yv = Xv.sample(4000, random_state=0), yv.loc[Xv.sample(4000, random_state=0).index]
+        pi = permutation_importance(m, Xv, yv, n_repeats=3, random_state=0)
+        imp = {c: round(float(v), 5) for c, v in sorted(zip(X.columns, pi.importances_mean), key=lambda z: -z[1])[:20]}
+    except Exception as e:  # noqa: BLE001
+        imp = {"error": str(e)[:120]}
     return {"rule": rule, "features": list(X.columns), "threshold": round(thr, 4), "valid_top": st_va, "test_top": st_te,
-            "test_all": _stat(y[te], weeks), "test_rank_corr": round(rank, 4), "robust": robust}
+            "test_all": _stat(y[te], weeks), "test_rank_corr": round(rank, 4), "robust": robust,
+            "importance_valid": imp, "brier": brier_skill(X, y > 0, tr, te)}
+
+
+def brier_skill(X: pd.DataFrame, win: pd.Series, tr: pd.Series, te: pd.Series) -> dict:
+    """Ялалтын магадлалын загвар (сургалтад сургаж) шалгалтын хэсэгт: BSS = 1 − Brier(загвар)/Brier(тогтмол
+    суурь хувь — сургалтын хэсгийн дундаж). BSS ≤ 0 = загвар тогтмол хувиас дээргүй."""
+    try:
+        from sklearn.ensemble import HistGradientBoostingClassifier
+    except ImportError:
+        return {"error": "scikit-learn суугаагүй"}
+    yt, ye = win[tr].astype(int), win[te].astype(int)
+    if yt.nunique() < 2 or len(ye) < 100:
+        return {"error": "өгөгдөл хүрэлцэхгүй"}
+    clf = HistGradientBoostingClassifier(max_depth=3, learning_rate=0.03, max_iter=200, min_samples_leaf=150,
+                                         l2_regularization=5.0, random_state=0).fit(X[tr], yt)
+    p = clf.predict_proba(X[te])[:, 1]
+    base = float(yt.mean())
+    b_model = float(np.mean((p - ye.to_numpy()) ** 2))
+    b_base = float(np.mean((base - ye.to_numpy()) ** 2))
+    return {"brier_model": round(b_model, 5), "brier_base": round(b_base, 5), "base_rate_train": round(base, 4),
+            "bss": round(1.0 - b_model / b_base, 4) if b_base > 0 else None, "n_test": int(len(ye))}
 
 
 # ---------------------------------------------------------------- шинжилгээ
@@ -465,7 +670,9 @@ def _filters(df: pd.DataFrame) -> dict:
     if "sweep" in df:
         f["liquidity sweep нийцсэн"], f["liquidity sweep эсрэг"] = al("sweep") > 0, al("sweep") < 0
         f["BOS нийцсэн"] = al("bos") > 0
-    f["R:R оноо ≥15 (чөлөөт зай их)"] = df.rr_pts >= 15 if "rr_pts" in df else pd.Series(False, index=df.index)
+    f["R:R ≥2.5 (чөлөөт зай их)"] = df.kind_rr >= 2.5 if "kind_rr" in df else pd.Series(False, index=df.index)
+    if "order" in df:
+        f["захиалга=LIMIT"], f["захиалга=MARKET"] = df.order == "LIMIT", df.order == "MARKET"
     base = dict(f)
     for s in sorted(df.setup.unique()):
         f[f"сетап={s} + W1 нийцсэн"] = (df.setup == s) & base["W1 нийцсэн"]
@@ -520,6 +727,20 @@ def _filters(df: pd.DataFrame) -> dict:
             f[f"төрөл={k} + мэдээний цочрол нийцсэн"] = (df.kind == k) & (df.y2d1_al > 5)
         for s in sorted(df.setup.unique()):
             f[f"сетап={s} + металл + бодит хүү таатай"] = (df.setup == s) & (df.ry_al > 10)
+    if "surprise_diff" in df:      # Phase 3: урьдчилан бүртгэсэн macro v2 + эдийн засгийн сюрприз таамаглалууд
+        lim = (df.order == "LIMIT") if "order" in df else df.setup.str.endswith("_LMT")
+        f["эдийн засгийн сюрприз нийцсэн (>0.5)"] = df.surprise_diff > 0.5
+        f["эдийн засгийн сюрприз эсрэг (<−0.5)"] = df.surprise_diff < -0.5
+        f["2Y хүүний зөрүү тэлж буй (20 хоног)"] = df.y2_chg_20d > 0
+        f["LIMIT + сюрприз нийцсэн (>0.5) + 2Y зөрүү тэлж буй"] = lim & (df.surprise_diff > 0.5) & (df.y2_chg_20d > 0)
+        f["металл + АНУ-ын бодит хүү буурч буй (20 хоног)"] = (df.kind == "metal") & (df.real10_al > 0)
+        hv = df.vix_level > 25
+        sh = np.array([safe_haven_side(s, k) for s, k in zip(df.symbol, df.kind)], float) * df.side
+        f["VIX>25 + аюулгүй валют (JPY/CHF/USD) худалдан авах"] = hv & (sh > 0)
+        f["VIX>25 + аюулгүй валютын эсрэг"] = hv & (sh < 0)
+        f["VIX>25 + индекс BUY"] = hv & (df.kind == "index") & (df.side > 0)
+        f["VIX>25 + индекс SELL"] = hv & (df.kind == "index") & (df.side < 0)
+        f["VIX горим бага (<15)"], f["VIX горим хэвийн (15–25)"] = df.vix_regime == 0, df.vix_regime == 1
     f["W1 + D1 нийцсэн + ADX 25–40"] = base["W1 нийцсэн"] & base["D1 чиг нийцсэн"] & base["ADX 25–40"]
     f["W1 нийцсэн + валютын хүч нийцсэн"] = base["W1 нийцсэн"] & base["валютын хүч нийцсэн (>0.3)"]
     return f
@@ -545,6 +766,8 @@ def _stat(x: pd.Series, weeks: pd.Series = None) -> dict:
 
 
 def analyze(df: pd.DataFrame, min_n: int = 400, min_avg: float = 0.05) -> dict:
+    if "unfilled" in df:                       # биелээгүй LIMIT мөр — зөвхөн портфолио backtest-д
+        df = df[df["unfilled"] != True]  # noqa: E712
     df = df.sort_values("time").reset_index(drop=True)
     # Зорилтын муруй: T×R зорилтод SL-ээс түрүүлж хүрсэн бодит хувь (зардалгүй — тооцоолуурын магадлалд ашиглана)
     curve = {str(t): round(float((df[r].dropna() >= t - 1e-9).mean()), 4) for r, t in CURVE if r in df}
@@ -579,6 +802,11 @@ def analyze(df: pd.DataFrame, min_n: int = 400, min_avg: float = 0.05) -> dict:
             picked.append({"filter": fname, "rule": r, "train": tr, "valid": va, "test": te,
                            "confirmed": bool(va["n"] >= min_n // 3 and (va["avg"] or 0) > 0)})
     confirmed = [p for p in picked if p["confirmed"]]
+    # Урьдчилан бүртгэсэн (Phase 3) таамаглалууд — сургалтын шүүлтүүрийг давсан эсэхээс үл хамааран бүх хэсгийн дүнг тайлагнана
+    segments = segment_table(df, parts, W)
+    z_all = NormalDist().inv_cdf(1 - 0.05 / max(1, tested))
+    prereg = [{"filter": fn, "rule": r, **{p_: _stat(df.loc[filt[fn] & m_, r], W) for p_, m_ in parts.items()}}
+              for fn in PREREG if fn in filt for r in ("t2", "be3")]
     # Хэт тааруулалтын шалгалт: сонголтын процессын walk-forward (3:1, 6 мөчлөг) ба Deflated Sharpe (бүх таамаглал)
     from . import validation as va
     vals = {r: df[r].to_numpy(float) for r in RULES}
@@ -603,6 +831,8 @@ def analyze(df: pd.DataFrame, min_n: int = 400, min_avg: float = 0.05) -> dict:
             "robust_on_test": len(robust), "z_required": round(z_req, 2), "cost_r": deduct, "costs": cost_info, "baseline": base, "model": model,
             "hold_caps": hold_cap_table(df, parts, W) if real else {},
             "walk_forward": wf, "deflated_sharpe": dsr,
+            "preregistered": prereg, "segments": segments, "z_required_all_tested": round(z_all, 2),
+            "kind_models": kind_models(df, parts),
             "picked": sorted(picked, key=lambda p: -(p["train"]["avg"] or 0)),
             "robust": sorted(robust, key=lambda p: -(p["test"]["avg"] or 0))}
 
@@ -650,6 +880,17 @@ def print_report(rep: dict) -> None:
             kinds = " ".join(f"{k} {x:+.2f}" for k, x in v["by_kind"].items() if x is not None)
             print(f"  {r:<8}{cap:>6}{f(v['all']):>8}{f(v['train']):>9}{f(v['valid']):>8}{f(v['test']):>9}"
                   f"{('±%.3f' % v['test']['se']) if v['test']['se'] else '':>7}   {kinds}")
+    km = rep.get("kind_models") or {}
+    if km:
+        print("\nТөрөл бүрийн калибрласан логистик загвар (шалгалтын хэсгийн Brier Skill Score):")
+        for k, v in km.items():
+            print(f"  {k:<7} " + (v.get("error") or f"BSS {v['bss']:+.4f} (n={v['n_test']}) · {', '.join(v['features'])}"))
+    if rep.get("preregistered"):
+        print("\nУрьдчилан бүртгэсэн таамаглалууд (зардлын дараах дундаж R; сургалт / баталгаажуулалт / шалгалт):")
+        for p in rep["preregistered"]:
+            print(f"  {p['filter'][:58]:<58} {p['rule']:<4} " + "  ".join(
+                f"{p[k]['avg']:+.3f} (n={p[k]['n']})" if p[k]["avg"] is not None else f"— (n={p[k]['n']})"
+                for k in ("train", "valid", "test")))
     md = rep.get("model") or {}
     if md.get("test_top"):
         print(f"\nМета-загвар (gradient boosting, {len(md['features'])} шинж чанар, дүрэм {md['rule']}): "
@@ -657,6 +898,14 @@ def print_report(rep: dict) -> None:
               f"шалгалт {f(md['test_top'])} ±{md['test_top']['se']} (n={md['test_top']['n']}); "
               f"шалгалтын бүх санаа {f(md['test_all'])}; эрэмбийн корреляци {md['test_rank_corr']:+.3f} → "
               f"{'ТОГТВОРТОЙ' if md['robust'] else 'давуу тал батлагдаагүй'}")
+        b = md.get("brier") or {}
+        if b.get("bss") is not None:
+            print(f"  Ялалтын магадлал (OOS шалгалт, n={b['n_test']}): Brier {b['brier_model']:.4f} vs тогтмол хувь "
+                  f"{b['brier_base']:.4f} → Brier Skill Score {b['bss']:+.4f}{' (тогтмол хувиас дээргүй)' if b['bss'] <= 0 else ''}")
+        imp = {k: v for k, v in (md.get("importance_valid") or {}).items() if k != "error"}
+        if imp:
+            print("  Шинж чанарын ач холбогдол (баталгаажуулалт, permutation): "
+                  + ", ".join(f"{k} {v:+.4f}" for k, v in list(imp.items())[:10]))
     elif md.get("error"):
         print(f"\nМета-загвар: {md['error']}")
     print("\n✓ = гурван хэсэгт тогтвортой   · = баталгаажуулалтад эерэг ч шалгалтад баталгаагүй   ✗ = баталгаажуулалтад унасан")
@@ -687,6 +936,8 @@ def main(root: str, cfg: dict, analyze_only: bool = False) -> int:
         if "ry_al" not in df:
             df = add_cross(df, cfg["instruments"], root)
             df.to_csv(path, index=False)
+        df = add_v2(df, cfg["instruments"], root)          # сюрпризийн архив шинэчлэгддэг тул үргэлж дахин тооцно
+        df.to_csv(path, index=False)
     else:
         span = "MT5-ийн бүх (≈15 жил)" if tag else "2 жилийн"
         print(f"{len(cfg['instruments'])} хэрэгслийн {span} түүхээр судалгааны өгөгдөл цуглуулж байна...", flush=True)
@@ -698,6 +949,7 @@ def main(root: str, cfg: dict, analyze_only: bool = False) -> int:
         df = add_macro(df, cfg["instruments"], root)
         df = add_usmacro(df, cfg["instruments"], root)
         df = add_cross(df, cfg["instruments"], root)
+        df = add_v2(df, cfg["instruments"], root)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         df.to_csv(path, index=False)
     rep = analyze(df[df.symbol.isin({i["symbol"] for i in cfg["instruments"]})])   # зөвхөн идэвхтэй хэрэгслүүд

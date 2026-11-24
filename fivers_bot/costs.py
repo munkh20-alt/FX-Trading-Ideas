@@ -144,14 +144,40 @@ def rollover_clock(index: pd.DatetimeIndex, triple: int, crypto: bool) -> np.nda
     return np.cumsum(w)[d - days[0]]
 
 
+MARKET_SLIP_SPREAD = 0.25      # MARKET захиалгын нэмэлт гулсалт = спредийн 25%
+FALLBACK_COST_R = 0.04         # config-д зардлын лавлагаагүй хэрэгсэлд л
+
+
 def trade_cost(p: dict, profile: Optional[np.ndarray], side: int, entry: float, dist: float, hour: int,
-               nights: float, slippage_r: float = DEFAULTS["slippage_r"]) -> dict:
-    """Нэг арилжааны зардал R-ээр: spread_r (+гулсалт), comm_r, swap_r (эерэг = төлнө)."""
+               nights: float, slippage_r: float = DEFAULTS["slippage_r"], order_type: Optional[str] = None) -> dict:
+    """Нэг арилжааны зардал R-ээр: spread_r (+гулсалт; MARKET бол + спредийн 25%), comm_r, swap_r (эерэг = төлнө)."""
     sp = max(p["spread_rel"], float(profile[hour]) if profile is not None else 0.0)
-    out = {"spread_r": sp * entry / dist + slippage_r, "comm_r": p["comm_rel"] * entry / dist,
+    spread_r = sp * entry / dist
+    slip = slippage_r + (MARKET_SLIP_SPREAD * spread_r if order_type == "MARKET" else 0.0)
+    out = {"spread_r": spread_r + slip, "comm_r": p["comm_rel"] * entry / dist,
            "swap_r": -p["swap_rel"][side] * entry * nights / dist}
     out["cost_r"] = out["spread_r"] + out["comm_r"] + out["swap_r"]
     return out
+
+
+def trade_cost_r(inst: dict, side, order_type: str, sl_dist: float, hold_bars_h1: int, open_time_utc,
+                 entry: Optional[float] = None, profile: Optional[np.ndarray] = None,
+                 slippage_r: float = DEFAULTS["slippage_r"]) -> dict:
+    """Хэрэгсэл бүрийн бодит зардал (R): config-ийн mt5 спред (UTC цагийн профайлтай бол түүгээр), шимтгэл,
+    своп (swap_long/short; swap_triple_day — MT5-ийн дугаар, анхдагч 3 = Лхагва → ×3), MARKET-д нэмэлт гулсалт.
+    side: "BUY"/"SELL" эсвэл ±1. Лавлагаагүй хэрэгсэлд FALLBACK_COST_R."""
+    s = side if isinstance(side, (int, float)) else (1 if str(side).upper() == "BUY" else -1)
+    p = params(inst)
+    if p is None or sl_dist <= 0:
+        return {"spread_r": None, "comm_r": None, "swap_r": None, "nights": None, "cost_r": FALLBACK_COST_R, "fallback": True}
+    t0 = pd.Timestamp(open_time_utc)
+    t0 = t0.tz_localize("UTC") if t0.tzinfo is None else t0.tz_convert("UTC")
+    idx = pd.date_range(t0, periods=max(1, int(hold_bars_h1)) + 1, freq="h")
+    clock = rollover_clock(idx, p["triple"], inst.get("type") == "crypto")
+    nights = float(clock[-1] - clock[0])
+    e = float(entry if entry is not None else inst["cost_ref_price"])
+    out = trade_cost(p, profile, s, e, float(sl_dist), t0.hour, nights, slippage_r, order_type)
+    return {**{k: round(v, 5) for k, v in out.items()}, "nights": nights, "fallback": False}
 
 
 def main(cfg: dict, cfg_path: str, do_apply: bool) -> int:

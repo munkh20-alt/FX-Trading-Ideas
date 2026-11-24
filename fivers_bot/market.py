@@ -42,7 +42,8 @@ def snapshot(insts: List[dict], data: dict, ideas: list, corr: dict, events: Opt
                      "idea_grade": i.grade if i else None, "regime": i.regime if i else None})
     # Корреляцийн матриц — хамгийн өндөр оноотой 12 хүртэл санааны хэрэгслээр
     syms = [i.symbol for i in sorted(ideas, key=lambda x: -x.score)[:12]]
-    matrix = [[1.0 if a == b else corr.get((a, b)) for b in syms] for a in syms]
+    c60 = lambda v: v[0] if isinstance(v, (tuple, list)) else v  # noqa: E731 — stress_correlation: (ρ60, ρ20)
+    matrix = [[1.0 if a == b else c60(corr.get((a, b))) for b in syms] for a in syms]
     cal = calendar_rows(events, now)
     return {"instruments": rows, "corr_symbols": syms, "corr_matrix": matrix, "calendar": cal,
             "calendar_ok": events is not None}
@@ -67,7 +68,19 @@ def chart_payload(root: str, symbol: str, tf: str, bars: int = 220) -> dict:
             "l": [_r(v, 6) for v in e["Low"]], "c": [_r(v, 6) for v in e["Close"]],
             "ema50": [_r(v, 6) for v in e["ema50"]], "ema200": [_r(v, 6) for v in e["ema200"]],
             "rsi": _r(e["rsi"].iloc[-1], 1), "adx": _r(e["adx"].iloc[-1], 1), "atr": _r(e["atr"].iloc[-1], 6),
+            "rsi_s": [_r(v, 2) for v in e["rsi"]], "atr_s": [_r(v, 6) for v in e["atr"]],
+            "fvg": _fvg(df),
             "levels": [{"level": _r(x["level"], 6), "touches": x["touches"]} for x in levels]}
+
+
+def _fvg(df) -> dict:
+    """Сүүлийн хаагдсан лаануудын fair value gap бүс (chart.smc_features) — {"bull": [доод, дээд] | None, "bear": ...}."""
+    try:
+        s = chartm.smc_features(df.iloc[:-1])
+    except Exception:  # noqa: BLE001
+        return {"bull": None, "bear": None}
+    z = lambda v: [_r(v[0], 6), _r(v[1], 6)] if v else None  # noqa: E731
+    return {"bull": z(s.get("fvg_bull")), "bear": z(s.get("fvg_bear"))}
 
 
 def _mtime(path: str) -> Optional[str]:
@@ -212,3 +225,80 @@ def settings_set(root: str, changes: Dict[str, object]) -> dict:
         json.dump(cfg, fh, ensure_ascii=False, indent=2)
     os.replace(tmp, path)
     return settings_get(root)
+
+
+# ---------------------------------------------------------------- /api/macro (Phase 4)
+MACRO_PAIRS = ("EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD", "USDCAD", "USDCHF", "EURGBP", "EURJPY")
+_MACRO_CACHE = {"t": 0.0, "data": None}
+MACRO_TTL = 600
+
+
+def _iso(v):
+    if v is None or pd.isna(v):
+        return None
+    try:
+        return pd.Timestamp(v).isoformat()
+    except Exception:  # noqa: BLE001
+        return str(v)
+
+
+def _num(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if f != f else round(f, 4)
+
+
+def macro_payload(root: str, force: bool = False) -> dict:
+    """Самбарын макро хэсэг: валютын эдийн засгийн сюрпризийн индекс (ESI), сүүлийн сюрпризүүд, 2 жилийн хүүний
+    зөрүү, АНУ-ын бодит хүү/VIX горим, мэдээний сентимент ба гарчгууд (эх холбоостой), эх сурвалжийн төлөв.
+    Бүгд МЭДЭЭЛЭЛ — оноонд ороогүй. 10 минут санах ойд хадгална."""
+    import time as _t
+    from . import econcal, macro, nlp_news, surprise
+    if not force and _MACRO_CACHE["data"] is not None and _t.time() - _MACRO_CACHE["t"] < MACRO_TTL:
+        return _MACRO_CACHE["data"]
+    now = pd.Timestamp.now(tz="UTC")
+    cache = os.path.join(root, "cache")
+    out = {"time": now.isoformat(), "informational": True, "health": {}}
+    # ---- эдийн засгийн сюрприз
+    try:
+        arch = econcal.load_archive(cache)
+        sc = surprise.score(arch)
+        out["surprise_index"] = surprise.esi_table(sc, now)
+        rec = sc[(sc["time_utc"] < now) & (sc["time_utc"] >= now - pd.Timedelta(days=7))].sort_values("time_utc", ascending=False).head(15)
+        out["surprise_recent"] = [{"time": _iso(r.time_utc), "ccy": r.ccy, "title": r.title, "actual": _num(r.a),
+                                   "forecast": _num(r.f), "z": _num(r.z), "approx": bool(r.approx)} for r in rec.itertuples(index=False)]
+        last_act = arch[arch["actual"].fillna("") != ""]["time_utc"].max() if len(arch) else None
+        out["health"]["calendar"] = {"ok": bool(len(arch)), "archive_rows": int(len(arch)), "tier1_scored": int(len(sc)),
+                                     "has_actual": bool(last_act is not None and pd.Timestamp(last_act) >= now - pd.Timedelta(hours=72)),
+                                     "last_actual": _iso(last_act),
+                                     "mt5_history": os.path.exists(econcal.HIST_FILE)}
+    except Exception as e:  # noqa: BLE001
+        out["surprise_index"], out["surprise_recent"] = {}, []
+        out["health"]["calendar"] = {"ok": False, "error": str(e)[:160]}
+    # ---- хүү, VIX
+    try:
+        mx, mmeta = macro.macro_series(root)
+        pol = macro.policy_rates(root)
+        out["us_rates"] = macro.us_rates_now(mx, now)
+        out["y2_spreads"] = {p: macro.y2_spread(mx, p, now, pol) for p in MACRO_PAIRS}
+        last = {c: _iso(mx[c].dropna().index.max()) for c in mx.columns} if mx is not None else {}
+        out["health"]["fred"] = {"ok": mx is not None, "sources": mmeta.get("sources", {}), "warnings": mmeta.get("warnings", []),
+                                 "last": last, "key": bool(os.environ.get("FRED_API_KEY", "").strip())}
+    except Exception as e:  # noqa: BLE001
+        out["us_rates"], out["y2_spreads"] = {}, {}
+        out["health"]["fred"] = {"ok": False, "error": str(e)[:160]}
+    out["fedwatch"] = macro.fedwatch()
+    # ---- мэдээний сентимент
+    try:
+        ndf, nmeta = nlp_news.refresh(root)
+        out["news_sentiment"] = nlp_news.aggregate(ndf, now)
+        out["headlines"] = nlp_news.top_headlines(ndf, now)
+        out["health"]["news_nlp"] = {"ok": bool(len(ndf)), "scorer": nmeta.get("scorer"), "sources": nmeta.get("sources", {}),
+                                     "cached": nmeta.get("cached", False), "articles": int(len(ndf))}
+    except Exception as e:  # noqa: BLE001
+        out["news_sentiment"], out["headlines"] = {}, []
+        out["health"]["news_nlp"] = {"ok": False, "error": str(e)[:160]}
+    _MACRO_CACHE.update(t=_t.time(), data=out)
+    return out
