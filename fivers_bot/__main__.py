@@ -11,6 +11,7 @@ import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from . import chart as chartm
 from . import cot as cotm
