@@ -63,7 +63,10 @@ def export(out: str) -> dict:
         return memo[ticker]
     dm.fetch_live = cached_fetch
 
-    _prune_reports()
+    try:
+        _prune_reports()
+    except OSError:
+        pass
     srv = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
     srv.public, srv.token, srv.session, srv.allowed_hosts = True, None, None, set()
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -72,10 +75,24 @@ def export(out: str) -> dict:
 
     def get(path):
         try:
-            with urllib.request.urlopen(base + path, timeout=180) as r:
+            with urllib.request.urlopen(base + path, timeout=300) as r:
                 return r.status, r.read()
         except urllib.error.HTTPError as e:
-            return e.code, e.read()
+            body = e.read()
+            print(f"  {path}: HTTP {e.code} {body[:300]!r}", flush=True)
+            return e.code, body
+        except Exception as e:  # noqa: BLE001 — холболт тасарсан/хугацаа хэтэрсэн: тухайн хэсгийг алгасна
+            print(f"  {path}: {type(e).__name__}: {e}", flush=True)
+            return 599, json.dumps({"error": f"{type(e).__name__}: {e}"}).encode()
+
+    def section(name, fn):
+        """Экспортын нэг хэсэг алдаа өгсөн ч бусад нь үргэлжилнэ (алдааг traceback-тэй логт бичнэ)."""
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            stats["errors"].append(f"{name}: {type(e).__name__}: {e}")
 
     def save(rel, body):
         p = os.path.join(out, "api", rel)
@@ -90,13 +107,16 @@ def export(out: str) -> dict:
         os.makedirs(os.path.join(out, "api"))
         names = [n for n in web._list_reports() if n.startswith("ideas_")][:MAX_REPORTS]
         save("reports.json", json.dumps(names).encode())
-        for n in names:
-            code, body = get("/api/report?file=" + n)
-            if code == 200:
-                save("report/" + n, body)
-        if names:
-            code, body = get("/api/report?file=" + names[0])
-            save("report.json", body)
+
+        def reports():
+            for n in names:
+                code, body = get("/api/report?file=" + n)
+                if code == 200:
+                    save("report/" + n, body)
+            if names:
+                code, body = get("/api/report?file=" + names[0])
+                save("report.json", body)
+        section("reports", reports)
         now = datetime.now(timezone.utc)
         save("mode.json", json.dumps({"public": True, "static": True, "cooldown_min": 0, "auto_min": AUTO_MIN,
                                       "next_run_at": None, "exported_at": now.isoformat()}).encode())
@@ -107,21 +127,24 @@ def export(out: str) -> dict:
                 save(ep + ".json", body)
             else:
                 stats["errors"].append(f"{ep}: HTTP {code}")
+
         # Графикууд: сүүлийн тайлангийн хэрэгслүүд
-        syms = []
-        if names:
-            with open(os.path.join(web.REPORTS, names[0]), encoding="utf-8") as fh:
-                rep = json.load(fh)
-            syms = ([x["symbol"] for x in (rep.get("market") or {}).get("instruments", [])]
-                    or [i["symbol"] for i in rep.get("ideas", [])])
-        for s in syms:
-            for tf in ("h4", "d1", "h1"):
-                code, body = get(f"/api/chart?symbol={s}&tf={tf}")
-                if code == 200:
-                    save(f"chart/{s}_{tf}.json", body)
-                else:
-                    stats["errors"].append(f"chart {s} {tf}: HTTP {code}")
-                    break
+        def charts():
+            syms = []
+            if names:
+                with open(os.path.join(web.REPORTS, names[0]), encoding="utf-8") as fh:
+                    rep = json.load(fh)
+                syms = ([x["symbol"] for x in (rep.get("market") or {}).get("instruments", [])]
+                        or [i["symbol"] for i in rep.get("ideas", [])])
+            for s in syms:
+                for tf in ("h4", "d1", "h1"):
+                    code, body = get(f"/api/chart?symbol={s}&tf={tf}")
+                    if code == 200:
+                        save(f"chart/{s}_{tf}.json", body)
+                    else:
+                        stats["errors"].append(f"chart {s} {tf}: HTTP {code}")
+                        break
+        section("charts", charts)
     finally:
         srv.shutdown()
         srv.server_close()

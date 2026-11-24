@@ -395,7 +395,12 @@ class Handler(BaseHTTPRequestHandler):
         if u.path in ("/", "/index.html"):
             with open(os.path.join(STATIC, "index.html"), "rb") as fh:
                 return self._send(200, fh.read(), "text/html; charset=utf-8")
-        code, payload = api_get(u.path, q, getattr(self.server, "public", False))
+        try:
+            code, payload = api_get(u.path, q, getattr(self.server, "public", False))
+        except Exception as e:  # noqa: BLE001 — холболтыг хариугүй таслахын оронд алдааг JSON-оор буцаана
+            import traceback
+            traceback.print_exc()
+            code, payload = 500, {"error": f"{type(e).__name__}: {str(e)[:300]}"}
         return self._send(code, payload)
 
     def do_POST(self):
@@ -414,7 +419,12 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(n) or b"{}")
         except ValueError:
             body = {}
-        code, payload = api_post(u.path, body, getattr(self.server, "public", False))
+        try:
+            code, payload = api_post(u.path, body, getattr(self.server, "public", False))
+        except Exception as e:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            code, payload = 500, {"error": f"{type(e).__name__}: {str(e)[:300]}"}
         return self._send(code, payload)
 
 
