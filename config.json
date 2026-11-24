@@ -36,7 +36,12 @@
     "require_positive_ev": true,
     "min_expected_r": 0.0,
     "allow_low_evidence": false,
-    "_ev_gate_note": "Хатуу EV шүүлтүүр: түүхэн тестээр хүлээгдэх утга (R) ≤ min_expected_r эсвэл нотолгоо сул (LOW) санаанд лот 0 — зөвхөн ажиглах. Унтраах бол require_positive_ev: false."
+    "_ev_gate_note": "Хатуу EV шүүлтүүр: түүхэн тестээр хүлээгдэх утга (R) ≤ min_expected_r эсвэл нотолгоо сул (LOW) санаанд лот 0 — зөвхөн ажиглах. Унтраах бол require_positive_ev: false.",
+    "grade_source": "ev",
+    "dd_throttle": true,
+    "dd_throttle_at": 0.75,
+    "margin_share": 0.5,
+    "_audit_note": "2026-11-24: grade_source=ev — лотын хэмжээг техник оноогоор биш EV-ийн үнэлгээгээр (ev_grade); dd_throttle — өдрийн хязгаарын хэрэглээ өсөх тусам шинэ эрсдэлийг бууруулж 75%-д 0; margin_share — шинэ санаануудын маржин ≤ чөлөөт маржины 50%."
   },
   "selection": {
     "ideas": 6,
@@ -1458,12 +1463,13 @@
     }
   ],
   "strategy_profiles": {
-    "_note": "Төрөл бүрийн сетапын дүрэм. allow_market / allow_limit, setups (жагсаалт; хоосон = бүгд), require_macro_alignment (эдийн засгийн сюрприз санааны талд байх). Одоогоор бүгд асаалттай — research-ээр батлагдсан өөрчлөлтийг л оруулна.",
+    "_note": "2026-11-24 (research_samples, зардлын дараах t2, сургалт/баталгаажуулалт/шалгалт): forex MARKET −0.146/−0.198/−0.285 vs LIMIT −0.040/−0.139/−0.124; index MARKET −0.137/−0.096/−0.202 vs LIMIT −0.120/−0.082/+0.072; crypto бүх хэсэгт сөрөг; forex LIMIT 0 шөнө барих +0.015/−0.015/−0.002. Металл холимог тул өөрчлөөгүй. Эдгээр нь алдагдлыг бууруулна — эерэг давуу тал батлагдаагүй (EV шүүлтүүр хэвээр).",
     "forex": {
-      "allow_market": true,
+      "allow_market": false,
       "allow_limit": true,
       "setups": [],
-      "require_macro_alignment": false
+      "require_macro_alignment": false,
+      "max_hold_nights": 0
     },
     "metal": {
       "allow_market": true,
@@ -1472,14 +1478,15 @@
       "require_macro_alignment": false
     },
     "index": {
-      "allow_market": true,
+      "allow_market": false,
       "allow_limit": true,
       "setups": [],
-      "require_macro_alignment": false
+      "require_macro_alignment": false,
+      "max_hold_nights": 0
     },
     "crypto": {
-      "allow_market": true,
-      "allow_limit": true,
+      "allow_market": false,
+      "allow_limit": false,
       "setups": [],
       "require_macro_alignment": false
     },
