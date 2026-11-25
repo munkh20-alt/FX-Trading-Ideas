@@ -105,12 +105,6 @@ def log_equity(acc: dict, open_risk: Optional[float], positions: int, now: Optio
     return True
 
 
-def equity_history(days: int = 30, db_path: Optional[str] = None) -> List[dict]:
-    since = int(time.time() - days * 86400)
-    with tx(db_path) as con:
-        return [dict(r) for r in con.execute("SELECT * FROM equity_log WHERE ts>=? ORDER BY ts", (since,))]
-
-
 # ---------------------------------------------------------------- санаа, review
 SIG_FIELDS = ("kind", "order_type", "setup", "score", "grade", "expected_r", "ev_low", "ev_grade", "ev_method", "lots",
               "risk_usd", "entry", "stop", "tp1", "tp2")

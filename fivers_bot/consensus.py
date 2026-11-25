@@ -9,7 +9,7 @@ import math
 import os
 from urllib.parse import urlparse
 from datetime import date, datetime
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 BIAS = {"bullish": 1, "bearish": -1, "neutral": 0}
 REQUIRED = ("source", "published", "instrument", "url")

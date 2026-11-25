@@ -23,6 +23,7 @@ import numpy as np
 import pandas as pd
 
 from . import usmacro as um
+from .util import to_utc
 
 GVZ_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices/GVZ_History.csv"
 REAL_URL = ("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/"
@@ -151,8 +152,7 @@ def asof(tab: Optional[pd.DataFrame], day) -> dict:
     """`day`-ээс ӨМНӨХ хамгийн сүүлийн мөр (ирээдүй рүү харахгүй)."""
     if tab is None or tab.empty:
         return {c: None for c in COLS}
-    ts = pd.Timestamp(day)
-    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    ts = to_utc(day)
     pos = tab.index.searchsorted(ts.normalize(), side="left") - 1
     if pos < 0:
         return {c: None for c in COLS}

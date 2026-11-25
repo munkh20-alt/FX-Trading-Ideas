@@ -9,6 +9,7 @@ import zlib
 import numpy as np
 import pandas as pd
 from typing import Optional
+from .util import to_utc
 
 OHLC = ["Open", "High", "Low", "Close"]
 
@@ -168,8 +169,7 @@ def fetch_live(ticker: str):
 
 def fetch_h1_since(ticker: str, start: pd.Timestamp) -> pd.DataFrame:
     """start-аас хойшх H1 лаа. Хоосон байж болно (санаа үүссэнээс хойш лаа гараагүй)."""
-    start = pd.Timestamp(start)
-    start = start.tz_localize("UTC") if start.tzinfo is None else start.tz_convert("UTC")
+    start = to_utc(start)
     # Yahoo өдрийн нарийвчлалтай start авдаг; өнөөдрийг өгвөл "start > end" алдаа гаргана
     day_before = (start - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
     try:
@@ -339,8 +339,7 @@ def _mt5_history(symbol: str, **kw):
             rates = np.concatenate(chunks) if chunks else None
             n = 0
         elif by_start:
-            st = pd.Timestamp(kw["start"])
-            st = st.tz_localize("UTC") if st.tzinfo is None else st.tz_convert("UTC")
+            st = to_utc(kw["start"])
             hours = (pd.Timestamp.now(tz="UTC") - st).total_seconds() / 3600
             n = int(max(48, hours + 72)) if kw["interval"] == "1h" else int(max(5, hours / 24 + 5))
         else:
@@ -387,8 +386,7 @@ def market_closed(symbol: str, kind: str, now=None, last=None, limit=None) -> Op
     """Хэрэгслийн зах зээл одоо хаалттай эсэх (шалтгааны текст) эсвэл None (нээлттэй / тодорхойгүй).
     MT5: тухайн символын сүүлийн tick 1 цагаас хуучин, харин лавлах символ (EURUSD, ажлын бус өдөр BTCUSD) шинэ байвал
     брокер үнэ илгээхгүй байна = арилжааны цаг биш. MT5 байхгүй бол: амралтын өдөр (Баасан 21:00 – Ням 21:00 UTC)."""
-    now = pd.Timestamp(now or pd.Timestamp.now(tz="UTC"))
-    now = now.tz_localize("UTC") if now.tzinfo is None else now.tz_convert("UTC")
+    now = to_utc(now or pd.Timestamp.now(tz="UTC"))
     weekend = (now.weekday() == 4 and now.hour >= 21) or now.weekday() == 5 or (now.weekday() == 6 and now.hour < 21)
     _mt5_config()
     mt5 = None
@@ -415,28 +413,10 @@ def market_closed(symbol: str, kind: str, now=None, last=None, limit=None) -> Op
     # MT5-гүй (Yahoo): амралтын 48 цагийг хасахад хуучрал хязгаартаа багтвал зах зээл амралтын дараа хараахан нээгдээгүй
     # (жишээ нь Даваа өглөө Европын индекс 07:00 UTC-ээс өмнө)
     if mt5 is None and last is not None and limit is not None and kind != "crypto":
-        last = pd.Timestamp(last)
-        last = last.tz_localize("UTC") if last.tzinfo is None else last.tz_convert("UTC")
+        last = to_utc(last)
         if (now - last).total_seconds() / 3600 - weekend_hours(last, now) <= limit:
             return f"амралтын дараа зах зээл хараахан нээгдээгүй (сүүлийн лаа {last:%m-%d %H:%M} UTC)"
     return None
-
-
-def mt5_account_snapshot() -> Optional[dict]:
-    """MT5 дансны товч (ЗӨВХӨН УНШИНА: account_info, positions_get). Холбогдоогүй бол None."""
-    _mt5_config()
-    if _MT5["source"] not in ("auto", "mt5"):
-        return None
-    with _MT5_LOCK:
-        mt5 = _mt5_connect()
-        if mt5 is None:
-            return None
-        info = mt5.account_info()
-        pos = mt5.positions_get() or ()
-    if info is None:
-        return None
-    return {"balance": float(info.balance), "equity": float(info.equity),
-            "floating_pnl": round(float(info.equity) - float(info.balance), 2), "open_positions_count": len(pos)}
 
 
 def mt5_margin(symbol: str, side: str, price: float) -> Optional[float]:

@@ -10,7 +10,6 @@ config-д лавлагаа байхгүй хэрэгсэлд COST_R (0.04R). С�
 Нэг H1 лаанд SL ба TP хоёулаа байвал SL гэж үзнэ (консерватив).
 """
 import json
-import math
 import os
 from concurrent.futures import ProcessPoolExecutor
 

@@ -12,6 +12,7 @@ import time
 from typing import Optional
 
 import pandas as pd
+from .util import to_utc
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "cache", "history_ext")
 MAX_PER_CALL = 5000
@@ -26,9 +27,7 @@ class ProviderUnavailable(RuntimeError):
     """Түлхүүр алга эсвэл хэрэгсэл тухайн эх сурвалжид байхгүй."""
 
 
-def _ts(x) -> pd.Timestamp:
-    t = pd.Timestamp(x)
-    return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+_ts = to_utc
 
 
 def oanda_instrument(symbol: str, kind: str) -> Optional[str]:

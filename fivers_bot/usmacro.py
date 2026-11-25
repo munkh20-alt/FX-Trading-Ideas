@@ -16,6 +16,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from .util import to_utc
 
 UST_URL = ("https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/"
            "{y}/all?type=daily_treasury_yield_curve&field_tdr_date_value={y}&page&_format=csv")
@@ -156,8 +157,7 @@ def asof(tab: Optional[pd.DataFrame], day) -> dict:
     cols = ("y2", "y10", "curve", "y2_chg", "curve_chg", "vix", "vix_chg", "dxy_mom")
     if tab is None or tab.empty:
         return {c: None for c in cols}
-    ts = pd.Timestamp(day)
-    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    ts = to_utc(day)
     pos = tab.index.searchsorted(ts.normalize(), side="left") - 1
     if pos < 0:
         return {c: None for c in cols}

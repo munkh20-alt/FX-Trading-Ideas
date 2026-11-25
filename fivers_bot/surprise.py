@@ -15,6 +15,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from .util import to_utc
 
 CCYS = ("USD", "EUR", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD")
 HALF_LIFE_DAYS = 14.0
@@ -121,9 +122,7 @@ def score(cal: pd.DataFrame) -> pd.DataFrame:
     return df[cols].reset_index(drop=True)
 
 
-def _as_ts(t) -> pd.Timestamp:
-    t = pd.Timestamp(t)
-    return t.tz_localize("UTC") if t.tzinfo is None else t.tz_convert("UTC")
+_as_ts = to_utc
 
 
 def esi(scored: pd.DataFrame, ccy: str, as_of, half_life_days: float = HALF_LIFE_DAYS,

@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from . import cbank
+from .util import to_utc
 
 CACHE = "news_sentiment.parquet"
 COLS = ["published_utc", "source", "title", "url", "ccy", "polarity", "risk_tone", "scorer"]
@@ -222,8 +223,7 @@ def refresh(root: str, max_age_s: float = REFRESH_S, scorer=None) -> tuple:
         if not u or u in seen or not a.get("title"):
             continue
         seen.add(u)
-        ts = pd.Timestamp(a["published_utc"])
-        new.append({**a, "url": u, "published_utc": ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")})
+        new.append({**a, "url": u, "published_utc": to_utc(a["published_utc"])})
     scorer = scorer or get_scorer()
     if new:
         sc = scorer.score([a["title"] for a in new])
@@ -245,8 +245,7 @@ def refresh(root: str, max_age_s: float = REFRESH_S, scorer=None) -> tuple:
 
 def aggregate(df: pd.DataFrame, as_of, window_h: float = WINDOW_H, half_life_h: float = HALF_LIFE_H) -> dict:
     """{"ccy": {USD: {score, n}, ...}, "risk_tone": {score, n}} — зөвхөн published_utc < as_of, задралтай жигнэсэн дундаж."""
-    as_of = pd.Timestamp(as_of)
-    as_of = as_of.tz_localize("UTC") if as_of.tzinfo is None else as_of.tz_convert("UTC")
+    as_of = to_utc(as_of)
     out = {"ccy": {c: {"score": None, "n": 0} for c in CCYS}, "risk_tone": {"score": None, "n": 0}}
     if df is None or not len(df):
         return out
@@ -288,8 +287,7 @@ def idea_sentiment(agg: dict, symbol: str, side: str, kind: str, ccy: Optional[s
 def top_headlines(df: pd.DataFrame, as_of, n: int = 12) -> List[dict]:
     if df is None or not len(df):
         return []
-    as_of = pd.Timestamp(as_of)
-    as_of = as_of.tz_localize("UTC") if as_of.tzinfo is None else as_of.tz_convert("UTC")
+    as_of = to_utc(as_of)
     t = pd.to_datetime(df["published_utc"], utc=True)
     d = df[(t < as_of) & (t >= as_of - pd.Timedelta(hours=WINDOW_H))].copy()
     d["_k"] = d["polarity"].abs() + d["risk_tone"].abs()

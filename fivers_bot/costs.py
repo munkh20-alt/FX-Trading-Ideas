@@ -20,6 +20,7 @@ import pandas as pd
 
 from . import data as dm
 from .indicators import atr
+from .util import to_utc
 
 DEFAULTS = {"max_cost_r": 0.15, "hold_nights": 2, "sl_atr_h4": 1.9, "slippage_r": 0.01}
 NY = "America/New_York"
@@ -170,8 +171,7 @@ def trade_cost_r(inst: dict, side, order_type: str, sl_dist: float, hold_bars_h1
     p = params(inst)
     if p is None or sl_dist <= 0:
         return {"spread_r": None, "comm_r": None, "swap_r": None, "nights": None, "cost_r": FALLBACK_COST_R, "fallback": True}
-    t0 = pd.Timestamp(open_time_utc)
-    t0 = t0.tz_localize("UTC") if t0.tzinfo is None else t0.tz_convert("UTC")
+    t0 = to_utc(open_time_utc)
     idx = pd.date_range(t0, periods=max(1, int(hold_bars_h1)) + 1, freq="h")
     clock = rollover_clock(idx, p["triple"], inst.get("type") == "crypto")
     nights = float(clock[-1] - clock[0])

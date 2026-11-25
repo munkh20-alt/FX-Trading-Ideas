@@ -337,6 +337,19 @@ US_COLS = ("y2_al", "dxy_al", "vix", "vix_al")
 CROSS_COLS = ("ry_al", "gvz", "gvz_al", "eq_al", "eq_dd", "y2d1_al")   # add_cross: алтны опцион, бодит хүү, хувьцаа, мэдээ
 
 
+def _prev_day_lookup(df: pd.DataFrame, tab: pd.DataFrame):
+    """`row(c)` → санаа бүрийн ӨМНӨХ өдрийн `tab[c]` утга (ирээдүй рүү харахгүй; байхгүй бол NaN)."""
+    days = pd.DatetimeIndex(pd.to_datetime(df.time, utc=True).dt.normalize())
+    pos = tab.index.searchsorted(days, side="left") - 1
+    ok = pos >= 0
+
+    def row(c):
+        if c not in tab:
+            return np.full(len(df), np.nan)
+        return np.where(ok, tab[c].to_numpy()[np.clip(pos, 0, None)], np.nan)
+    return row
+
+
 def add_usmacro(df: pd.DataFrame, insts: list, root: str) -> pd.DataFrame:
     """АНУ-ын хүү (Treasury 2Y), долларын индекс, VIX-ийг санааны чиглэлд нийцүүлж нэмнэ (өмнөх өдрийн утга):
     y2_al  = 2Y өгөөжийн 20 хоногийн өөрчлөлт (bp) × долларын чиглэл × side  (эерэг = хүү санааны талд)
@@ -357,14 +370,7 @@ def add_usmacro(df: pd.DataFrame, insts: list, root: str) -> pd.DataFrame:
         df[c] = np.nan
     if tab is None or tab.empty:
         return df
-    days = pd.DatetimeIndex(pd.to_datetime(df.time, utc=True).dt.normalize())
-    pos = tab.index.searchsorted(days, side="left") - 1          # өмнөх өдөр — ирээдүй рүү харахгүй
-    ok = pos >= 0
-
-    def row(c):
-        if c not in tab:
-            return np.full(len(df), np.nan)
-        return np.where(ok, tab[c].to_numpy()[np.clip(pos, 0, None)], np.nan)
+    row = _prev_day_lookup(df, tab)
 
     side = df.side.to_numpy(float)
     us = np.array([um.usd_side(sy, k) for sy, k in zip(df.symbol, df.kind)], float)
@@ -399,14 +405,7 @@ def add_cross(df: pd.DataFrame, insts: list, root: str) -> pd.DataFrame:
         df[c] = np.nan
     if tab is None or tab.empty:
         return df
-    days = pd.DatetimeIndex(pd.to_datetime(df.time, utc=True).dt.normalize())
-    pos = tab.index.searchsorted(days, side="left") - 1          # өмнөх өдөр — ирээдүй рүү харахгүй
-    ok = pos >= 0
-
-    def row(c):
-        if c not in tab:
-            return np.full(len(df), np.nan)
-        return np.where(ok, tab[c].to_numpy()[np.clip(pos, 0, None)], np.nan)
+    row = _prev_day_lookup(df, tab)
 
     side = df.side.to_numpy(float)
     gs = np.array([ca.gold_side(sy, k) for sy, k in zip(df.symbol, df.kind)], float)

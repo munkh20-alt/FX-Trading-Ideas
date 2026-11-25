@@ -155,8 +155,7 @@ def export(out: str) -> dict:
     page = page.replace("<script>", SHIM + "<script>", 1)
     with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as fh:
         fh.write(page)
-    for f in ("manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png", "apple-touch-icon.png", "favicon-64.png",
-              "brand-logo.webp", "lightweight-charts.standalone.production.js"):
+    for f, _ in web.STATIC_FILES.values():
         if os.path.exists(os.path.join(web.STATIC, f)):
             shutil.copy2(os.path.join(web.STATIC, f), out)
     with open(os.path.join(out, ".nojekyll"), "w") as fh:

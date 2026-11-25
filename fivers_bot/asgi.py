@@ -33,10 +33,7 @@ LIVE_S = 30.0
 JOB_S = 1.0
 SEC_HEADERS = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
                "Referrer-Policy": "no-referrer"}
-STATIC = {"/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
-          "/icon.svg": ("icon.svg", "image/svg+xml"), "/icon-192.png": ("icon-192.png", "image/png"),
-          "/icon-512.png": ("icon-512.png", "image/png"), "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"), "/favicon-64.png": ("favicon-64.png", "image/png"), "/brand-logo.webp": ("brand-logo.webp", "image/webp"),
-          "/lightweight-charts.standalone.production.js": ("lightweight-charts.standalone.production.js", "application/javascript; charset=utf-8")}
+STATIC = web.STATIC_FILES
 
 
 def _json(code: int, body) -> Response:

@@ -32,6 +32,11 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPORTS = os.path.join(HERE, "reports")
 STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+# URL → (static/ доторх файл, Content-Type); stdlib болон ASGI сервер, статик экспорт хамтдаа ашиглана
+STATIC_FILES = {"/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+                "/icon.svg": ("icon.svg", "image/svg+xml"), "/icon-192.png": ("icon-192.png", "image/png"),
+                "/icon-512.png": ("icon-512.png", "image/png"), "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"), "/favicon-64.png": ("favicon-64.png", "image/png"), "/brand-logo.webp": ("brand-logo.webp", "image/webp"),
+                "/lightweight-charts.standalone.production.js": ("lightweight-charts.standalone.production.js", "application/javascript; charset=utf-8")}
 NAME_RE = re.compile(r"^(ideas|synthetic)_\d{8}_\d{4}\.json$")
 
 # ---------------------------------------------------------------- нийтийн горим (FXBOT_PUBLIC=1)
@@ -384,12 +389,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         u = urlparse(self.path)
         q = parse_qs(u.query)
-        static = {"/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
-                  "/icon.svg": ("icon.svg", "image/svg+xml"), "/icon-192.png": ("icon-192.png", "image/png"),
-                  "/icon-512.png": ("icon-512.png", "image/png"), "/apple-touch-icon.png": ("apple-touch-icon.png", "image/png"), "/favicon-64.png": ("favicon-64.png", "image/png"), "/brand-logo.webp": ("brand-logo.webp", "image/webp"),
-                  "/lightweight-charts.standalone.production.js": ("lightweight-charts.standalone.production.js", "application/javascript; charset=utf-8")}
-        if u.path in static:
-            return self._static(*static[u.path])
+        if u.path in STATIC_FILES:
+            return self._static(*STATIC_FILES[u.path])
         if u.path == "/login":
             return self._send(303, b"", "text/plain", {"Location": "/"})
         if u.path in ("/", "/index.html"):

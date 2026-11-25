@@ -11,6 +11,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from .util import to_utc
 
 AREA = {"USD": "US", "EUR": "XM", "JPY": "JP", "GBP": "GB", "CHF": "CH", "AUD": "AU", "NZD": "NZ", "CAD": "CA"}
 URL = ("https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0/D.{areas}"
@@ -68,8 +69,7 @@ def carry(rates: Optional[pd.DataFrame], symbol: str, day) -> dict:
     if rates is None or b not in rates or q not in rates:
         return {"carry": None, "carry_chg": None}
     diff = (rates[b] - rates[q]).dropna()
-    ts = pd.Timestamp(day)
-    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    ts = to_utc(day)
     d = diff[diff.index < ts.normalize()]
     if d.empty:
         return {"carry": None, "carry_chg": None}
@@ -93,8 +93,7 @@ def momentum(d1: pd.DataFrame, day=None) -> dict:
     """`day`-ээс өмнө хаагдсан сүүлчийн D1 лааны momentum z-оноонууд."""
     t = momentum_table(d1)
     if day is not None:
-        ts = pd.Timestamp(day)
-        ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+        ts = to_utc(day)
         t = t[t.index.normalize() < ts.normalize()]
     if t.empty:
         return {n: None for n, _ in MOM}
@@ -192,8 +191,7 @@ def macro_series(root: str, max_age_h: float = 12) -> tuple:
 
 def _prior(s: pd.Series, as_of) -> pd.Series:
     """as_of-ийн ӨМНӨХ өдрүүдийн утга (тухайн өдрийн хаалтын утга өдрийн дотор мэдэгдэхгүй)."""
-    ts = pd.Timestamp(as_of)
-    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    ts = to_utc(as_of)
     return s.dropna()[s.dropna().index < ts.normalize()]
 
 

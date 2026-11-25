@@ -25,6 +25,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from . import news
+from .util import to_utc
 
 MT5_FILE = os.path.join(os.environ.get("APPDATA", ""), "MetaQuotes", "Terminal", "Common", "Files", "fxbot_calendar.json")
 MT5_MAX_AGE = 10 * 60            # service минут тутам бичдэг — 10 минутаас хуучин бол терминал/service зогссон
@@ -78,8 +79,7 @@ def _fmt(v, unit: str = "") -> str:
 
 
 def _event(title, ccy, ts, impact, actual, forecast, previous, source, unit="") -> dict:
-    ts = pd.Timestamp(ts)
-    ts = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+    ts = to_utc(ts)
     a, f, p = _fmt(actual, unit), _fmt(forecast, unit), _fmt(previous, unit)
     return {"title": str(title or "").strip(), "ccy": ccy, "time": ts, "time_utc": ts, "impact": impact,
             "actual": a, "forecast": f, "previous": p, "unit": unit or unit_of(a, f, p), "source": source}
@@ -165,8 +165,11 @@ def from_finnhub(cache_dir: str = "", force: bool = False) -> List[dict]:
 
 
 # ---------------------------------------------------------------- архив (cache/econ_calendar.parquet)
-def _norm_title(t: str) -> str:
-    return re.sub(r"\s+", " ", str(t or "").lower()).strip()
+def _norm_titles(s: pd.Series) -> pd.Series:
+    return s.str.lower().str.replace(r"\s+", " ", regex=True).str.strip()
+
+
+_ARCHIVED = {}   # архивын зам → (мэдээний хурууны хээ, файлын mtime, мөрийн тоо): өөрчлөлтгүй бол дахин бичихгүй
 
 
 def archive(events: List[dict], cache_dir: str) -> int:
@@ -174,9 +177,13 @@ def archive(events: List[dict], cache_dir: str) -> int:
     if not events:
         return 0
     rows = [{c: (e.get("time_utc") or e.get("time")) if c == "time_utc" else e.get(c, "") for c in COLS} for e in events]
+    path = os.path.join(cache_dir, ARCHIVE)
+    finger = hash(tuple(tuple(str(r[c]) for c in COLS) for r in rows))
+    memo = _ARCHIVED.get(path)
+    if memo and memo[0] == finger and os.path.exists(path) and os.path.getmtime(path) == memo[1]:
+        return memo[2]      # /api/live 30 сек тутам ижил мэдээ ирүүлдэг — 65k мөртэй архивыг дахин бичих шаардлагагүй
     new = pd.DataFrame(rows, columns=COLS)
     new["time_utc"] = pd.to_datetime(new["time_utc"], utc=True)
-    path = os.path.join(cache_dir, ARCHIVE)
     if os.path.exists(path):
         try:
             new = pd.concat([pd.read_parquet(path), new], ignore_index=True)
@@ -184,13 +191,14 @@ def archive(events: List[dict], cache_dir: str) -> int:
             pass
     for c in COLS[1:]:
         new[c] = new[c].fillna("").astype(str)
-    new["_k"] = new["title"].map(_norm_title)
+    new["_k"] = _norm_titles(new["title"])
     new["_a"] = (new["actual"] != "").astype(int)
     new = (new.sort_values(["_a", "time_utc"]).drop_duplicates(["ccy", "_k", "time_utc"], keep="last")
               .sort_values("time_utc").drop(columns=["_k", "_a"]).reset_index(drop=True))
     os.makedirs(cache_dir, exist_ok=True)
     new.to_parquet(path + ".tmp", index=False)
     os.replace(path + ".tmp", path)
+    _ARCHIVED[path] = (finger, os.path.getmtime(path), len(new))
     return len(new)
 
 
