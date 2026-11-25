@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="mn">
+<html lang="mn" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -509,13 +509,12 @@ const sgn = (v, d = 2, suf = "") => v == null ? "—" : `<span class="${v > 0 ? 
 const getJ = async u => { const r = await fetch(u); if (r.status === 401) { location.reload(); throw new Error("нэвтрэх шаардлагатай"); } return r.json(); };
 let REP = null, VIEW = "overview", MODE = {public: false};
 
-try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+// Бот эхлэхэд үргэлж бараан; «Өнгө солих» нь цайвар/бараан хооронд сэлгэнэ (сонголт зөвхөн энэ табын хугацаанд хадгалагдана)
+try { localStorage.removeItem("theme"); const t = sessionStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 $("#theme").onclick = () => {
-  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
-  const nxt = cur === "dark" ? "light" : "dark";
+  const nxt = document.documentElement.dataset.theme === "light" ? "dark" : "light";
   document.documentElement.dataset.theme = nxt;
-  try { localStorage.setItem("theme", nxt); } catch (e) {}
+  try { sessionStorage.setItem("theme", nxt); } catch (e) {}
   if (REP) render(REP);
   drawChart();
 };
